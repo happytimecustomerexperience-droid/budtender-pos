@@ -1,0 +1,30 @@
+{% load static %}
+<div class="pcard tag">
+  {% if p.fresh %}<span class="flame">FRESH</span>{% endif %}
+  <div class="img">
+    {% if p.img and p.img_static %}<img src="{% static p.img %}" loading="lazy" alt="{{ p.brand }}">
+    {% elif p.img %}<img src="{{ p.img }}" loading="lazy" alt="{{ p.brand }}">
+    {% else %}<span class="ph">{{ p.brand|default:p.name|slice:":2"|upper }}</span>{% endif %}
+  </div>
+  <div class="body">
+    {% if p.brand %}<div class="brand">{{ p.brand }}</div>{% endif %}
+    <div class="name">{{ p.name }}</div>
+    {% if p.why %}<div class="why">{{ p.why }}</div>{% endif %}
+    <div class="meta">
+      <span class="price">${{ p.price|floatformat:0 }}</span>
+      {% if p.price_was and p.price_was > p.price %}<span class="was">${{ p.price_was|floatformat:0 }}</span>{% endif %}
+      {% if p.thc %}<span class="thc">{{ p.thc|floatformat:0 }}% THC</span>{% endif %}
+    </div>
+  </div>
+  <form class="addrow" hx-post="{% url 'cart_add' %}" hx-target="#cart">
+    <input type="hidden" name="ProductId" value="{{ p.ProductId }}">
+    <input type="hidden" name="BatchId" value="{{ p.BatchId }}">
+    <input type="hidden" name="SerialNo" value="{{ p.SerialNo }}">
+    <input type="hidden" name="UnitPrice" value="{{ p.UnitPrice }}">
+    <input type="hidden" name="RecUnitPrice" value="{{ p.RecUnitPrice }}">
+    <input type="hidden" name="ProductDesc" value="{{ p.ProductDesc }}">
+    <input type="hidden" name="CannbisProduct" value="{{ p.CannbisProduct }}">
+    <input name="Cnt" type="number" min="1" value="1" aria-label="qty">
+    <button type="submit">Add</button>
+  </form>
+</div>

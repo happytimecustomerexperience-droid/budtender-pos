@@ -13,3 +13,5 @@ media/
 *.egg-info/
 build/
 dist/
+
+.claude/

@@ -36,9 +36,6 @@ class FakeClient:
     def guest_search(self, query=""):
         return self.resp.get("guests", {"Data": []})
 
-    def find_products(self, query, limit=40):
-        return self.resp.get("products", [])
-
     def submit_cart(self, acct_id, items, **kw):
         return {"shipment_id": 999, "schedule_id": 111, "allotment": 2530.1,
                 "added": items, "saved": {"Result": True}}
@@ -75,14 +72,21 @@ def test_lookup_lists_guests(auth, monkeypatch):
     assert r.status_code == 200 and b"DAKOTA WANGLER" in r.content and b"23959577" in r.content
 
 
-def test_inventory_live_search(auth, monkeypatch):
+def test_menu_renders_products(auth, monkeypatch):
     _use_store(monkeypatch)
-    monkeypatch.setattr(V, "_client", lambda s: FakeClient(products=[
-        {"ProductId": 3498331, "BatchId": 7454015, "SerialNo": "178",
-         "ProductDescription": "1UP Cartridge", "UnitPrice": 25, "RecUnitPrice": 25,
-         "CannabisInventory": "Yes", "TotalAvailable": 10}]))
-    r = auth.get(reverse("inventory"), {"q": "1up"}, SERVER_NAME="localhost")
-    assert r.status_code == 200 and b"1UP Cartridge" in r.content and b"live" in r.content
+    items = [{
+        "product_id": "1", "name": "1UP Cartridge", "brand": "1UP", "category": "Vaporizer",
+        "raw_category": "Vaporizer", "cat_key": "vapes", "strain": "", "thc": 80,
+        "price": 25.0, "qty": 10,
+        "image": "", "img": None, "img_static": True, "price_was": 0, "effects": [],
+        "strain_type": "", "terpene": "", "bucket": "", "velocity": 0, "margin_pct": 0,
+        "price_z": 0, "subcategory": "", "received_date": None,
+        "ProductId": 3498331, "BatchId": 7454015, "SerialNo": "178", "UnitPrice": 25.0,
+        "RecUnitPrice": 25.0, "ProductDesc": "1UP Cartridge", "CannbisProduct": "Yes",
+    }]
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda s: items)
+    r = auth.get(reverse("menu"), {"q": "1up"}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"1UP Cartridge" in r.content
 
 
 def test_cart_add_remove(auth, monkeypatch):

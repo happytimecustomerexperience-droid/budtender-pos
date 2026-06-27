@@ -5,69 +5,68 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Budtender POS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'budtender/app.css' %}">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-<header>
-  <h1>Budtender POS</h1>
-  <select name="store" hx-preserve="true"
-          onchange="document.querySelectorAll('[name=store-mirror]').forEach(e=>e.value=this.value)">
-    {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s }}</option>{% endfor %}
+<header class="top">
+  <span class="logo">HAPPY&nbsp;TIME</span>
+  <select name="store" id="store" hx-get="{% url 'menu' %}" hx-target="#menu" hx-trigger="change">
+    {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
   </select>
   <span class="spacer"></span>
-  <a href="{% url 'logout' %}">Sign out</a>
+  {% if acct_id %}<span class="cust-chip">👤 <b>{{ acct_name|default:"Customer" }}</b></span>{% endif %}
+  <a class="signout" href="{% url 'logout' %}">Sign out</a>
 </header>
 
-<main>
-  <section class="card stack">
-    <h2>1 · Scan ID</h2>
-    <form hx-post="{% url 'scan' %}" hx-target="#profile" hx-encoding="multipart/form-data" class="stack">
-      <input type="hidden" name="store-mirror" value="{{ active }}" form="">
-      <input type="file" name="images" accept="image/*" capture="environment" multiple required>
-      <button type="submit">Scan &amp; match</button>
-    </form>
-    <hr style="border:none;border-top:1px solid #eef1f5;margin:4px 0">
-    <h2>or · Look up by phone / name</h2>
-    <form class="inline" hx-post="{% url 'lookup' %}" hx-target="#guests">
-      <input name="phone" placeholder="phone" inputmode="tel" autocomplete="off">
-      <input name="name" placeholder="name" autocomplete="off">
-      <button type="submit">Search</button>
-    </form>
-    <div id="guests"></div>
-  </section>
+<main class="app">
+  <!-- LEFT: customer -->
+  <div class="col side">
+    <section class="card">
+      <h2>Customer</h2>
+      <form hx-post="{% url 'scan' %}" hx-target="#profile" hx-encoding="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="file" name="images" accept="image/*" capture="environment" multiple required style="flex:1;min-width:140px">
+        <button type="submit">Scan ID</button>
+      </form>
+      <form class="filters" hx-post="{% url 'lookup' %}" hx-target="#guests" style="margin-top:8px">
+        <input class="search" name="phone" placeholder="search by phone" inputmode="tel" autocomplete="off">
+        <button class="ghost" type="submit">Find</button>
+      </form>
+      <div id="guests" style="margin-top:8px"></div>
+    </section>
+    <section class="card">
+      <h2>Profile</h2>
+      <div id="profile">{% if not acct_id %}<p class="muted">No customer selected.</p>{% endif %}</div>
+    </section>
+  </div>
 
-  <section class="card">
-    <h2>2 · Customer</h2>
-    {% if acct_id %}<div class="banner">Selected: <strong>{{ acct_name|default:"(name)" }}</strong> · Acct {{ acct_id }}</div>{% endif %}
-    <div id="profile" style="margin-top:8px">
-      {% if not acct_id %}<em class="muted">No customer selected.</em>{% endif %}
+  <!-- CENTER: menu -->
+  <div class="col">
+    <div id="menu" hx-get="{% url 'menu' %}" hx-trigger="load, customerChanged from:body">
+      <div class="card"><p class="muted">Loading menu…</p></div>
     </div>
-  </section>
+  </div>
 
-  <section class="card span2 stack">
-    <h2>3 · Inventory</h2>
-    <form class="inline" hx-get="{% url 'inventory' %}" hx-target="#inventory">
-      <input name="q" placeholder="search product…" autocomplete="off">
-      <button type="submit">Search</button>
-    </form>
-    <div id="inventory"></div>
-  </section>
-
-  <section class="card span2 stack">
-    <h2>4 · Cart</h2>
-    <div id="cart">{% include "budtender/_cart.html" %}</div>
-    <form hx-post="{% url 'cart_submit' %}" hx-target="#submit-result">
-      <button type="submit">Submit cart → Ready for pickup</button>
-    </form>
-    <div id="submit-result"></div>
-  </section>
+  <!-- RIGHT: cart -->
+  <div class="col side">
+    <section class="card cart">
+      <h2>Cart</h2>
+      <div id="cart">{% include "budtender/_cart.html" %}</div>
+      <form hx-post="{% url 'cart_submit' %}" hx-target="#submit-result">
+        <button type="submit" class="submit">Submit → Ready for pickup</button>
+      </form>
+      <div id="submit-result" style="margin-top:8px"></div>
+    </section>
+  </div>
 </main>
 
 <script>
-  // keep the store choice on every htmx request (header select is outside the forms)
+  // keep the chosen store on every htmx request (the select lives in the header)
   document.body.addEventListener('htmx:configRequest', e => {
-    const sel = document.querySelector('header select[name=store]');
+    const sel = document.getElementById('store');
     if (sel) e.detail.parameters['store'] = sel.value;
   });
 </script>

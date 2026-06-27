@@ -1,0 +1,62 @@
+{% load static %}
+{% if error %}<div class="card"><p class="err">{{ error }}</p></div>{% else %}
+
+{% if has_customer and suggestions %}
+<section class="card">
+  <h2>For {{ acct_name|default:"this customer" }} — next best</h2>
+  <div class="rail">
+    {% for p in suggestions %}{% include "budtender/_product_card.html" %}{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="tabs">
+    <a class="tab {% if not f.cat %}active{% endif %}"
+       hx-get="{% url 'menu' %}?sort={{ f.sort }}" hx-target="#menu" style="cursor:pointer">All</a>
+    {% for c in cats %}
+    <a class="tab {% if f.cat == c.key %}active{% endif %}"
+       hx-get="{% url 'menu' %}?cat={{ c.key }}&sort={{ f.sort }}" hx-target="#menu" style="cursor:pointer">
+      {% if c.tile %}<img src="{% static c.tile %}" alt="">{% endif %}{{ c.label }} <span class="muted">{{ c.count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <form class="filters" hx-get="{% url 'menu' %}" hx-target="#menu"
+        hx-trigger="change, keyup changed delay:400ms from:input[name=q]" style="margin-top:12px">
+    <input type="hidden" name="cat" value="{{ f.cat }}">
+    <input class="search" name="q" value="{{ f.q }}" placeholder="Search products…" autocomplete="off">
+    <select name="sort">
+      <option value="foryou" {% if f.sort == 'foryou' %}selected{% endif %}>{% if has_customer %}For You{% else %}Recommended{% endif %}</option>
+      <option value="price_asc" {% if f.sort == 'price_asc' %}selected{% endif %}>Price ↑</option>
+      <option value="price_desc" {% if f.sort == 'price_desc' %}selected{% endif %}>Price ↓</option>
+      <option value="thc_desc" {% if f.sort == 'thc_desc' %}selected{% endif %}>THC ↓</option>
+      <option value="popular" {% if f.sort == 'popular' %}selected{% endif %}>Popular</option>
+    </select>
+    <select name="brand">
+      <option value="">All brands</option>
+      {% for b in facets.brands %}<option value="{{ b }}" {% if f.brand == b %}selected{% endif %}>{{ b }}</option>{% endfor %}
+    </select>
+    {% if facets.strain_types %}
+    <select name="strain_type">
+      <option value="">Any type</option>
+      {% for s in facets.strain_types %}<option value="{{ s }}" {% if f.strain_type == s %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
+    </select>{% endif %}
+    <select name="thc_min">
+      <option value="">THC</option>
+      <option value="20" {% if f.thc_min == 20 %}selected{% endif %}>20%+</option>
+      <option value="25" {% if f.thc_min == 25 %}selected{% endif %}>25%+</option>
+      <option value="30" {% if f.thc_min == 30 %}selected{% endif %}>30%+</option>
+    </select>
+    <label class="chip"><input type="checkbox" name="in_stock" value="1" {% if f.in_stock %}checked{% endif %} style="min-height:auto;margin-right:5px"> In stock</label>
+    {% if facets.has_doh %}<label class="chip"><input type="checkbox" name="doh_only" value="1" {% if f.doh_only %}checked{% endif %} style="min-height:auto;margin-right:5px"> DOH</label>{% endif %}
+  </form>
+
+  <p class="muted" style="margin:10px 0">{{ total }} product{{ total|pluralize }}{% if has_customer and f.sort == 'foryou' %} · sorted for {{ acct_name }}{% endif %}</p>
+
+  <div class="grid">
+    {% for p in products %}{% include "budtender/_product_card.html" %}{% empty %}
+    <p class="muted">No products match these filters.</p>{% endfor %}
+  </div>
+</section>
+{% endif %}

@@ -17,14 +17,17 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 from core.ratelimit import rate_limit
-from customers.intelligence import load_customer_history
+from customers.intelligence import load_customer_history, load_profile_full
 from customers.services import record_write, upsert_customer
-from dutchie.pos_register_client import PosRegisterClient, map_product_row
+from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
+
+from . import catalog
 
 logger = logging.getLogger(__name__)
 
 MAX_LIST = 40  # cap any rendered list (pagination ceiling)
+MENU_PAGE = 60  # products rendered per menu view
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -139,7 +142,9 @@ def scan(request):
     ctx.update({"scan": scan_result, "acct_id": acct_id,
                 "history": load_customer_history(acct_id=acct_id, phone=scan_result.get("phone"),
                                                  name=scan_result.get("accts_name"))})
-    return render(request, "budtender/_profile.html", ctx)
+    resp = render(request, "budtender/_profile.html", ctx)
+    resp["HX-Trigger"] = "customerChanged"
+    return resp
 
 
 @login_required
@@ -174,34 +179,56 @@ def profile(request):
     if acct:  # persist the acct<->name mapping locally for future fast lookup
         upsert_customer({"accts_name": name, "phone": phone},
                         dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
-    return render(request, "budtender/_profile.html", {
+    resp = render(request, "budtender/_profile.html", {
         "acct_id": acct, "scan": {"accts_name": name, "phone": phone},
         "history": load_customer_history(acct_id=acct, phone=phone, name=name),
     })
+    resp["HX-Trigger"] = "customerChanged"  # re-rank the menu For-You
+    return resp
+
+
+def _filters(request):
+    g = request.GET
+
+    def _int(k):
+        v = (g.get(k) or "").strip()
+        return int(v) if v.lstrip("-").isdigit() else None
+
+    return {
+        "q": g.get("q", ""), "cat": g.get("cat", ""), "brand": g.get("brand", ""),
+        "strain_type": g.get("strain_type", ""), "effect": g.get("effect", ""),
+        "sort": g.get("sort", "foryou"),
+        "price_min": _int("price_min"), "price_max": _int("price_max"),
+        "thc_min": _int("thc_min"),
+        "in_stock": g.get("in_stock") == "1", "doh_only": g.get("doh_only") == "1",
+    }
 
 
 @login_required
-@rate_limit("inventory", limit=60, window=60)
+@rate_limit("menu", limit=180, window=60)
 @require_http_methods(["GET"])
-def inventory(request):
+def menu(request):
     store = _active_store(request)
-    q = (request.GET.get("q") or "").strip()
-    ctx = {"store": store, "q": q}
+    ctx = {"store": store}
     if not store:
         ctx["error"] = "no store configured"
-        return render(request, "budtender/_inventory.html", ctx)
-    if not q:
-        ctx["products"] = []
-        return render(request, "budtender/_inventory.html", ctx)
+        return render(request, "budtender/_menu.html", ctx)
+    phone = request.session.get("acct_phone") or ""
+    profile = load_profile_full(phone) if phone else None
+    f = _filters(request)
     try:
-        # product_SearchV2 returns the full live inventory; filter locally. Each row
-        # already carries the exact ProductId/BatchId/SerialNo the cart-add needs.
-        rows = _client(store).find_products(q, limit=MAX_LIST)
-        ctx["products"] = [map_product_row(r) for r in rows]
-        ctx["source"] = "live"
+        items = catalog.get_inventory(store.name)
     except Exception as exc:
-        ctx["error"] = f"inventory search failed: {exc}"
-    return render(request, "budtender/_inventory.html", ctx)
+        ctx["error"] = f"menu load failed: {exc}"
+        return render(request, "budtender/_menu.html", ctx)
+    results = catalog.query(items, profile, f)
+    ctx.update(
+        products=results[:MENU_PAGE], total=len(results),
+        cats=catalog.categories(items), facets=catalog.facets(items), f=f,
+        has_customer=bool(profile), acct_name=request.session.get("acct_name"),
+        suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
+    )
+    return render(request, "budtender/_menu.html", ctx)
 
 
 @login_required
@@ -221,7 +248,12 @@ def cart_add(request):
         item["Cnt"] = 1
     cart.append(item)
     request.session["cart"] = cart
-    return render(request, "budtender/_cart.html", {"cart": cart})
+    return render(request, "budtender/_cart.html", _cart_ctx(cart))
+
+
+def _cart_ctx(cart):
+    total = sum(float(it.get("UnitPrice") or 0) * int(it.get("Cnt") or 1) for it in cart)
+    return {"cart": cart, "cart_total": total}
 
 
 @login_required
@@ -232,7 +264,7 @@ def cart_remove(request):
     if 0 <= idx < len(cart):
         cart.pop(idx)
     request.session["cart"] = cart
-    return render(request, "budtender/_cart.html", {"cart": cart})
+    return render(request, "budtender/_cart.html", _cart_ctx(cart))
 
 
 @login_required

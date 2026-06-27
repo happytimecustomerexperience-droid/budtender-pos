@@ -99,3 +99,97 @@ def load_customer_history(acct_id=None, phone=None, name=None):
     except Exception:
         logger.debug("load_customer_history (happytime) failed", exc_info=True)
         return None
+
+
+# store key -> happytime-budtender location_slug
+_HHT_LOC = {"yakima": "yakima", "pullman": "pullman", "mtvernon": "mount-vernon"}
+
+
+def _connect():
+    dsn = os.environ.get("CUSTOMER_DB_DSN", "").strip()
+    if not dsn:
+        return None
+    try:
+        import psycopg
+        return psycopg.connect(dsn, connect_timeout=4, autocommit=True)
+    except Exception:
+        logger.debug("CUSTOMER_DB connect failed", exc_info=True)
+        return None
+
+
+def load_profile_full(phone):
+    """Raw affinity profile (for ranking + suggestions), or None. Keys match
+    ranking.py / suggest.py expectations."""
+    cands = _phone_candidates(phone or "")
+    if not cands:
+        return None
+    conn = _connect()
+    if not conn:
+        return None
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT total_orders, last_purchase_at, price_tier, novelty_score,
+                       brand_affinity, category_affinity, strain_type_affinity,
+                       subcategory_affinity, terpene_affinity, bucket_mix, purchase_history
+                FROM budtender_customerprofile WHERE phone = ANY(%s) LIMIT 1
+                """,
+                (cands,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "orders": int(row[0] or 0),
+            "last_purchase": str(row[1])[:10] if row[1] else None,
+            "price_tier": row[2] or "",
+            "novelty_score": row[3],
+            "brand_affinity": row[4] or {},
+            "category_affinity": row[5] or {},
+            "strain_type_affinity": row[6] or {},
+            "subcategory_affinity": row[7] or {},
+            "terpene_affinity": row[8] or {},
+            "bucket_mix": row[9] or {},
+            "purchase_history": row[10] or [],
+        }
+    except Exception:
+        logger.debug("load_profile_full failed", exc_info=True)
+        return None
+
+
+def load_product_enrichment(store_key):
+    """{str(product_id) | sku: {strain_type, terpene, effects, bucket, velocity,
+    margin_pct, price_z, subcategory, image, price_was}} from happytime's
+    budtender_product for this store. {} when unavailable."""
+    conn = _connect()
+    if not conn:
+        return {}
+    slug = _HHT_LOC.get(store_key, store_key)
+    out = {}
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT product_id, sku, strain_type, dominant_terpene, effects, bucket,
+                       velocity, margin_pct, price_z, subcategory, image_url, price_was
+                FROM budtender_product WHERE location_slug = %s
+                """,
+                (slug,),
+            )
+            for r in cur.fetchall():
+                rec = {
+                    "strain_type": r[2] or "", "terpene": r[3] or "",
+                    "effects": r[4] or [], "bucket": r[5] or "",
+                    "velocity": r[6], "margin_pct": r[7], "price_z": r[8],
+                    "subcategory": r[9] or "", "image_url": r[10] or "",
+                    "price_was": r[11],
+                }
+                if r[0] is not None:
+                    out[str(r[0])] = rec
+                if r[1]:
+                    out.setdefault(str(r[1]), rec)
+        return out
+    except Exception:
+        logger.debug("load_product_enrichment failed", exc_info=True)
+        return {}
