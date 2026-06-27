@@ -72,6 +72,63 @@ def test_screen_ok_with_session(auth, monkeypatch):
     assert r.status_code == 200 and b"Budtender POS" in r.content
 
 
+def test_start_phone_match_sets_session_and_redirects(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda s: FakeClient(guests={"Data": [
+        {"Guest_id": 47531504, "Name": "Jane Doe", "PhoneNo": "5094808352"}]}))
+    r = auth.post(reverse("start"), {"phone": "509-480-8352", "store": "yakima"}, SERVER_NAME="localhost")
+    assert r.status_code == 302 and r.url == reverse("screen")
+    assert auth.session["acct_id"] == 47531504 and auth.session["acct_phone"] == "5094808352"
+
+
+def test_start_under21_blocks(auth, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    _use_store(monkeypatch)
+    import core.uploads as up
+    import idscan.pipeline as ip
+    monkeypatch.setattr(up, "collect_id_images", lambda files: [b"img"])
+    monkeypatch.setattr(ip, "run_id_scan", lambda imgs: {"over_21": False, "accts_name": "Kid", "age": 18})
+    img = SimpleUploadedFile("id.jpg", b"img", content_type="image/jpeg")
+    r = auth.post(reverse("start"), {"store": "yakima", "images": img}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"UNDER 21" in r.content
+    assert "acct_id" not in auth.session  # no session started
+
+
+def test_start_needs_input(auth, monkeypatch):
+    _use_store(monkeypatch)
+    r = auth.post(reverse("start"), {"store": "yakima"}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"Scan an ID or enter a phone" in r.content
+
+
+def test_profile_get_sets_session(auth, monkeypatch):
+    _use_store(monkeypatch)
+    r = auth.get(reverse("profile") + "?acct=47531504&name=Jane%20Doe&phone=5094808352",
+                 SERVER_NAME="localhost")
+    assert r.status_code == 200
+    assert r["HX-Trigger"] == "customerChanged"
+    assert auth.session["acct_id"] == "47531504"
+
+
+def test_end_session_clears_and_redirects(auth, monkeypatch):
+    _use_store(monkeypatch)
+    s = auth.session
+    s["acct_id"] = 5
+    s["cart"] = [{"x": 1}]
+    s.save()
+    r = auth.get(reverse("end"), SERVER_NAME="localhost")
+    assert r.status_code == 302 and r.url == reverse("begin")
+    assert "acct_id" not in auth.session
+
+
+def test_all_get_pages_no_500(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda s: [])
+    for name in ("begin", "menu"):
+        assert auth.get(reverse(name), SERVER_NAME="localhost").status_code == 200
+    # login page is unauthenticated-friendly
+    assert auth.get(reverse("login"), SERVER_NAME="localhost").status_code == 200
+
+
 def test_resolve_prefers_phone(monkeypatch):
     from budtender.views import _resolve_or_create
 

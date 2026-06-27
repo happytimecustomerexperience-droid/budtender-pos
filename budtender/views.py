@@ -175,7 +175,10 @@ def start(request):
 
     if scan:
         upsert_customer({**scan, "phone": phone}, dutchie_acct_id=acct_id)
-    request.session.update(acct_id=acct_id, acct_name=name, acct_phone=phone, cart=[])
+    request.session["acct_id"] = acct_id
+    request.session["acct_name"] = name
+    request.session["acct_phone"] = phone
+    request.session["cart"] = []
     return redirect("screen")
 
 
