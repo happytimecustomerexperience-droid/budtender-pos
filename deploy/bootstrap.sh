@@ -79,7 +79,8 @@ server {
 EOF
 ln -sf /etc/nginx/sites-available/budtender /etc/nginx/sites-enabled/budtender
 rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+systemctl enable nginx
+nginx -t && (systemctl restart nginx || { echo "   nginx restart failed — is port 80 taken (docker)?"; ss -ltnp | grep ':80 ' || true; })
 
 echo ">> [8/8] TLS (Let's Encrypt)"
 apt-get install -y certbot python3-certbot-nginx
