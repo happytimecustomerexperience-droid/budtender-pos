@@ -10,6 +10,9 @@ DOMAIN="${1:-checkout.3dpresence.com}"
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$APP_DIR/.venv/bin/python"
 SVC_USER="${SVC_USER:-www-data}"
+# Where gunicorn listens. Behind an existing proxy (Caddy/Traefik), set SKIP_PROXY=1
+# and point that proxy at this address. Default 127.0.0.1:8000 (proxy on same host).
+BIND="${BUDTENDER_BIND:-127.0.0.1:8000}"
 
 echo ">> domain=$DOMAIN  app_dir=$APP_DIR  user=$SVC_USER"
 [ -f "$APP_DIR/.env" ] || { echo "!! $APP_DIR/.env missing — scp it first (it holds all secrets)"; exit 1; }
@@ -50,7 +53,7 @@ User=$SVC_USER
 Group=$SVC_USER
 WorkingDirectory=$APP_DIR
 EnvironmentFile=$APP_DIR/.env
-Environment=BUDTENDER_BIND=127.0.0.1:8000
+Environment=BUDTENDER_BIND=$BIND
 ExecStart=$APP_DIR/.venv/bin/gunicorn -c $APP_DIR/gunicorn.conf.py budtender_pos.wsgi
 Restart=always
 RestartSec=3
@@ -61,6 +64,13 @@ EOF
 systemctl daemon-reload
 systemctl enable --now budtender
 systemctl restart budtender
+
+if [ -n "${SKIP_PROXY:-}" ]; then
+  echo ">> [7/8] SKIP_PROXY set — not touching nginx/Caddy. Point your proxy at $BIND"
+  echo ">>        gunicorn is live on $BIND (service: budtender)"
+  echo ">> done. App on $BIND — add a reverse_proxy in your existing proxy for $DOMAIN"
+  exit 0
+fi
 
 echo ">> [7/8] nginx reverse proxy"
 cat > /etc/nginx/sites-available/budtender <<EOF
