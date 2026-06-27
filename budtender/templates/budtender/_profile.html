@@ -18,21 +18,27 @@
   {% if history %}
     <div class="kpi">
       <div><b>{{ history.orders }}</b><span>orders</span></div>
-      <div><b>${{ history.total_spend|floatformat:0 }}</b><span>spend</span></div>
-      <div><b>${{ history.aov|floatformat:0 }}</b><span>AOV</span></div>
-      <div><b>{{ history.recency_days|default:"—" }}d</b><span>recency</span></div>
+      <div><b>{{ history.last_purchase|default:"—" }}</b><span>last purchase</span></div>
+      <div><b>{{ history.price_tier|default:"—" }}</b><span>price tier</span></div>
+      <div><b>{{ history.novelty|default:"—" }}</b><span>novelty</span></div>
     </div>
-    {% if history.top_products %}
-      <h2 style="margin-top:12px">Favorite products</h2>
+    {% if history.top_categories %}
+      <p style="margin-top:10px"><strong>Likes:</strong>
+        {% for c in history.top_categories %}<span class="hn" style="display:inline;margin-right:6px">{{ c }}</span>{% endfor %}
+        {% for b in history.top_brands %}<span class="hn" style="display:inline;margin-right:6px">{{ b }}</span>{% endfor %}
+      </p>
+    {% endif %}
+    {% if history.recent %}
+      <h2 style="margin-top:10px">Recent buys</h2>
       <div class="scroll">
-      <table><thead><tr><th>Product</th><th>Rev</th><th>Units</th></tr></thead><tbody>
-        {% for p in history.top_products %}<tr><td>{{ p.product }}</td>
-          <td>${{ p.revenue|floatformat:2 }}</td><td>{{ p.units }}</td></tr>{% endfor %}
+      <table><thead><tr><th>Product</th><th>Brand</th><th>×</th></tr></thead><tbody>
+        {% for p in history.recent %}<tr><td>{{ p.product }}</td><td>{{ p.brand }}</td><td>{{ p.times }}</td></tr>{% endfor %}
       </tbody></table>
       </div>
     {% endif %}
+    <p class="muted" style="margin-top:6px">Taste profile · Happy Time</p>
   {% else %}
-    <p class="muted">Purchase history unavailable (dashboard DB not wired).</p>
+    <p class="muted">No taste profile yet for this customer.</p>
   {% endif %}
 {% else %}
   <em class="muted">No customer selected.</em>

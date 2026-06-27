@@ -1,199 +1,101 @@
-"""Customer-360 history loader.
+"""Customer-360 — reads the happytime-budtender CustomerProfile READ-ONLY.
 
-# ponytail: reads the marketing-dashboard's already-ingested Postgres `_log`
-# data READ-ONLY via the optional `dashboard` DB alias. We never re-ingest or
-# write. If the alias/schema is absent the UI degrades to "history unavailable".
+# ponytail: the sister app `happytime-budtender` already builds rich per-customer
+# taste profiles (keyed by phone) in its Postgres table `budtender_customerprofile`.
+# We connect read-only via CUSTOMER_DB_DSN and read that row by phone. No writes,
+# no changes to that app. Absent/unreachable DSN -> "history unavailable" (degrade).
 
-The dashboard's `sales_report_log` (SRL) has NO direct Dutchie acct_id — the
-reference loaders (apps/dashboard/loaders/kyc.py) match a customer by NAME
-(LOWER(TRIM(customer_name))). We do the same: history is keyed on the guest's
-full name. acct_id/phone are accepted for signature parity but the SRL join is
-by name. `net_sales` is PRE-TAX; returns are signed-negative rows that net into
-the sums (we don't COALESCE cost on returns).
+Profile fields used: total_orders, last_purchase_at, price_tier, novelty_score,
+brand_affinity/category_affinity (JSON {name: weight}), purchase_history
+(JSON [{sku, brand, category, strain_type, qty, times_bought, last_bought_at}]).
+The join key is PHONE (E.164) — we normalize the Dutchie phone to candidates.
 """
 
 import logging
+import os
 import re
-
-from django.conf import settings
-from django.db import connections
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+def _phone_candidates(phone: str) -> list[str]:
+    """Normalize a Dutchie phone to the formats happytime might store."""
+    digits = re.sub(r"\D", "", phone or "")
+    if not digits:
+        return []
+    out = {phone.strip()}
+    if len(digits) == 10:
+        out.update({f"+1{digits}", f"1{digits}", digits})
+    elif len(digits) == 11 and digits.startswith("1"):
+        out.update({f"+{digits}", digits, digits[1:]})
+    else:
+        out.update({digits, f"+{digits}"})
+    return [p for p in out if p]
 
 
-def _schema():
-    """Return a validated tenant schema name, or None if unavailable."""
-    if "dashboard" not in settings.DATABASES:
-        return None
-    schema = (getattr(settings, "DASHBOARD_TENANT_SCHEMA", "") or "").strip()
-    if not schema or not _SCHEMA_RE.match(schema):
-        return None
-    return schema
-
-
-def _name_from(acct_id, phone, name):
-    """Best available human name to match the SRL customer_name on."""
-    return (name or "").strip()
+def _top(affinity: dict, n: int = 5) -> list[str]:
+    if not isinstance(affinity, dict):
+        return []
+    return [k for k, _ in sorted(affinity.items(), key=lambda kv: kv[1] or 0, reverse=True)[:n]]
 
 
 def load_customer_history(acct_id=None, phone=None, name=None):
-    """Customer-360 from the dashboard `_log` data, matched by NAME.
-
-    Returns a dict (see shape below) or None when the dashboard mirror is
-    unavailable OR no name to match on. SRL has no acct_id/phone customer key,
-    so when only acct_id/phone is known and `name` is empty we return None
-    (caller renders "history unavailable").
+    """Rich profile from happytime-budtender by phone, or None if unavailable.
 
     Shape:
-        {
-          "orders": int,                 # distinct order_id
-          "total_spend": float,          # Σ net_sales (pre-tax, returns netted)
-          "aov": float,                  # total_spend / orders
-          "recency_days": int | None,    # days since last purchase
-          "cadence_days": float | None,  # avg days between visit-days
-          "top_products": [{"product","revenue","units"}],
-          "top_categories": [{"category","revenue"}],
-          "purchase_history": [{"date","order_id","total"}],
-          "favorite_strains": [str, ...],
-          "matched_by": "name",
-        }
+        {source:"happytime", orders, last_purchase, price_tier, novelty,
+         top_categories:[str], top_brands:[str], recent:[{product,brand,times}],
+         matched_by:"phone"}
     """
-    schema = _schema()
-    if not schema:
+    dsn = os.environ.get("CUSTOMER_DB_DSN", "").strip()
+    cands = _phone_candidates(phone or "")
+    if not dsn or not cands:
         return None
-    cust_name = _name_from(acct_id, phone, name)
-    if not cust_name:
-        return None
-
-    conn = connections["dashboard"]
     try:
-        with conn.cursor() as cur:
-            cur.execute(f'SET LOCAL search_path TO "{schema}"')
-            ref = cust_name
-            params = [ref, ref]
-            name_clause = (
-                "(s.customer_name = %s OR LOWER(TRIM(s.customer_name)) = LOWER(TRIM(%s)))"
-            )
-
-            # Summary: orders, spend (pre-tax, returns netted), recency.
-            cur.execute(
-                f"""
-                SELECT COUNT(DISTINCT s.order_id)::BIGINT,
-                       COALESCE(SUM(s.net_sales), 0),
-                       MAX(s.report_date)
-                FROM sales_report_log s
-                WHERE {name_clause}
-                """,
-                params,
-            )
-            row = cur.fetchone() or (0, 0, None)
-            orders = int(row[0] or 0)
-            total_spend = round(float(row[1] or 0), 2)
-            last_date = row[2]
-            if orders == 0:
-                return None
-
-            cur.execute("SELECT CURRENT_DATE")
-            today = cur.fetchone()[0]
-            recency_days = (today - last_date).days if last_date else None
-            aov = round(total_spend / orders, 2) if orders else 0.0
-
-            # Cadence: avg gap between distinct purchase days.
-            cur.execute(
-                f"""
-                WITH days AS (
-                    SELECT DISTINCT s.report_date AS d
-                    FROM sales_report_log s
-                    WHERE {name_clause}
-                )
-                SELECT COUNT(*)::BIGINT, MIN(d), MAX(d) FROM days
-                """,
-                params,
-            )
-            drow = cur.fetchone() or (0, None, None)
-            n_days = int(drow[0] or 0)
-            cadence_days = None
-            if n_days > 1 and drow[1] and drow[2]:
-                span = (drow[2] - drow[1]).days
-                cadence_days = round(span / (n_days - 1), 1) if span else 0.0
-
-            # Top products (revenue + signed units).
-            cur.execute(
-                f"""
-                SELECT COALESCE(TRIM(s.product_name), 'Unknown') AS product,
-                       COALESCE(SUM(s.net_sales), 0) AS revenue,
-                       COALESCE(SUM(s.total_inventory_sold), 0) AS units
-                FROM sales_report_log s
-                WHERE {name_clause}
-                GROUP BY COALESCE(TRIM(s.product_name), 'Unknown')
-                ORDER BY revenue DESC
-                LIMIT 10
-                """,
-                params,
-            )
-            top_products = [
-                {"product": r[0], "revenue": round(float(r[1] or 0), 2), "units": int(r[2] or 0)}
-                for r in cur.fetchall()
-            ]
-
-            # Top categories.
-            cur.execute(
-                f"""
-                SELECT COALESCE(NULLIF(TRIM(s.category), ''), 'Unknown') AS category,
-                       COALESCE(SUM(s.net_sales), 0) AS revenue
-                FROM sales_report_log s
-                WHERE {name_clause}
-                GROUP BY COALESCE(NULLIF(TRIM(s.category), ''), 'Unknown')
-                ORDER BY revenue DESC
-                LIMIT 10
-                """,
-                params,
-            )
-            top_categories = [
-                {"category": r[0], "revenue": round(float(r[1] or 0), 2)} for r in cur.fetchall()
-            ]
-
-            # Purchase history (per order_id).
-            cur.execute(
-                f"""
-                SELECT MAX(s.report_date)::TEXT AS date,
-                       s.order_id::TEXT AS order_id,
-                       COALESCE(SUM(s.net_sales), 0) AS total
-                FROM sales_report_log s
-                WHERE {name_clause}
-                GROUP BY s.order_id
-                ORDER BY date DESC
-                LIMIT 50
-                """,
-                params,
-            )
-            purchase_history = [
-                {"date": r[0], "order_id": r[1], "total": round(float(r[2] or 0), 2)}
-                for r in cur.fetchall()
-            ]
-
-            return {
-                "orders": orders,
-                "total_spend": total_spend,
-                "aov": aov,
-                "recency_days": recency_days,
-                "cadence_days": cadence_days,
-                "top_products": top_products,
-                "top_categories": top_categories,
-                "purchase_history": purchase_history,
-                "favorite_strains": _favorite_strains(top_products),
-                "matched_by": "name",
-            }
+        import psycopg
     except Exception:
-        logger.debug("load_customer_history failed", exc_info=True)
+        logger.debug("psycopg not installed")
         return None
-
-
-def _favorite_strains(top_products):
-    """Cheap heuristic: the top product names double as favorite strains.
-
-    SRL has no dedicated strain column; the product name is the closest signal.
-    """
-    return [p["product"] for p in (top_products or [])[:5]]
+    try:
+        with psycopg.connect(dsn, connect_timeout=4, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT total_orders, last_purchase_at, price_tier, novelty_score,
+                           brand_affinity, category_affinity, purchase_history
+                    FROM budtender_customerprofile
+                    WHERE phone = ANY(%s)
+                    LIMIT 1
+                    """,
+                    (cands,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return None
+        total_orders, last_purchase, price_tier, novelty, brand_aff, cat_aff, hist = row
+        recent = []
+        if isinstance(hist, list):
+            hist_sorted = sorted(
+                hist, key=lambda h: (h or {}).get("last_bought_at") or "", reverse=True
+            )
+            for h in hist_sorted[:10]:
+                if isinstance(h, dict):
+                    recent.append({
+                        "product": h.get("sku") or h.get("product") or h.get("brand") or "—",
+                        "brand": h.get("brand") or "",
+                        "times": h.get("times_bought") or h.get("qty") or "",
+                    })
+        return {
+            "source": "happytime",
+            "orders": int(total_orders or 0),
+            "last_purchase": str(last_purchase)[:10] if last_purchase else None,
+            "price_tier": price_tier or "",
+            "novelty": round(float(novelty), 2) if novelty is not None else None,
+            "top_categories": _top(cat_aff),
+            "top_brands": _top(brand_aff),
+            "recent": recent,
+            "matched_by": "phone",
+        }
+    except Exception:
+        logger.debug("load_customer_history (happytime) failed", exc_info=True)
+        return None

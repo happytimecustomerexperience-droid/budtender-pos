@@ -135,8 +135,10 @@ def scan(request):
     if acct_id:
         request.session["acct_id"] = acct_id
         request.session["acct_name"] = scan_result.get("accts_name")
+    request.session["acct_phone"] = scan_result.get("phone") or ""
     ctx.update({"scan": scan_result, "acct_id": acct_id,
-                "history": load_customer_history(acct_id=acct_id, name=scan_result.get("accts_name"))})
+                "history": load_customer_history(acct_id=acct_id, phone=scan_result.get("phone"),
+                                                 name=scan_result.get("accts_name"))})
     return render(request, "budtender/_profile.html", ctx)
 
 
@@ -165,13 +167,16 @@ def lookup(request):
 def profile(request):
     acct = request.GET.get("acct")
     name = request.GET.get("name")
+    phone = request.GET.get("phone") or ""
     request.session["acct_id"] = acct
     request.session["acct_name"] = name
+    request.session["acct_phone"] = phone
     if acct:  # persist the acct<->name mapping locally for future fast lookup
-        upsert_customer({"accts_name": name}, dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
+        upsert_customer({"accts_name": name, "phone": phone},
+                        dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
     return render(request, "budtender/_profile.html", {
-        "acct_id": acct, "scan": {"accts_name": name},
-        "history": load_customer_history(acct_id=acct, name=name),
+        "acct_id": acct, "scan": {"accts_name": name, "phone": phone},
+        "history": load_customer_history(acct_id=acct, phone=phone, name=name),
     })
 
 

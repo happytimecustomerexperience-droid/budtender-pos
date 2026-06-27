@@ -19,6 +19,9 @@ services:
     expose:
       - "8000"
     restart: unless-stopped
+    networks:
+      - default
+      - hht                                  # reach happytime-budtender's Postgres (read-only)
     labels:
       - traefik.enable=true
       - traefik.docker.network=budtender-pos_default
@@ -27,6 +30,14 @@ services:
       - traefik.http.routers.checkout.tls=true
       - traefik.http.routers.checkout.tls.certresolver=letsencrypt
       - traefik.http.services.checkout.loadbalancer.server.port=8000
+
+networks:
+  default:
+  # happytime-budtender's compose network — lets us reach its `db` for read-only
+  # customer profiles. CUSTOMER_DB_DSN (in .env) = postgresql://USER:PW@db:5432/budtender
+  hht:
+    external: true
+    name: happytime-budtender_default
 
 volumes:
   budtender_data:

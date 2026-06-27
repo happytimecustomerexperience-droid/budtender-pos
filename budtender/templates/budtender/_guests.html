@@ -9,7 +9,7 @@
       <td>{{ g.name }}{% if g.patient_type %}<span class="hn">{{ g.patient_type }}</span>{% endif %}</td>
       <td>{{ g.phone }}</td><td>{{ g.last }}</td><td>{{ g.acct_id }}</td>
       <td><button class="ghost" style="min-height:38px"
-                  hx-get="{% url 'profile' %}?acct={{ g.acct_id }}&name={{ g.name|urlencode }}"
+                  hx-get="{% url 'profile' %}?acct={{ g.acct_id }}&name={{ g.name|urlencode }}&phone={{ g.phone|urlencode }}"
                   hx-target="#profile">Select</button></td>
     </tr>
   {% endfor %}

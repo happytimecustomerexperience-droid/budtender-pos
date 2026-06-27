@@ -11,6 +11,7 @@ dependencies = [
     "Pillow>=10",        # upload verify() guard
     "whitenoise>=6",     # static serving at scale
     "python-dotenv>=1",  # load .env (all secrets live there)
+    "psycopg[binary]>=3.1",  # read-only customer profiles from happytime-budtender
 ]
 
 [project.optional-dependencies]
