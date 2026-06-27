@@ -74,7 +74,8 @@ WSGI_APPLICATION = "budtender_pos.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        # Persist on a mounted volume in Docker via BUDTENDER_DB_PATH.
+        "NAME": os.environ.get("BUDTENDER_DB_PATH", str(BASE_DIR / "db.sqlite3")),
     }
 }
 # Optional read-only mirror of the dashboard's Postgres for customer history.

@@ -1,0 +1,32 @@
+# Budtender POS — runs behind the existing host-mode Traefik (docker provider).
+# Traefik auto-discovers this container by the labels below and issues TLS via the
+# `letsencrypt` resolver, exactly like the voice/nordland services on this VPS.
+# No ports are published — Traefik reaches the container on budtender-pos_default.
+#
+#   docker compose up -d --build
+#
+# Requires a .env in this dir (all secrets) and an A record:
+#   checkout.3dpresence.com -> this VPS public IP   (Let's Encrypt HTTP challenge).
+services:
+  web:
+    build: .
+    env_file:
+      - .env
+    environment:
+      BUDTENDER_DB_PATH: /data/db.sqlite3   # persisted on the named volume
+    volumes:
+      - budtender_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=budtender-pos_default
+      - traefik.http.routers.checkout.rule=Host(`checkout.3dpresence.com`)
+      - traefik.http.routers.checkout.entrypoints=web,websecure
+      - traefik.http.routers.checkout.tls=true
+      - traefik.http.routers.checkout.tls.certresolver=letsencrypt
+      - traefik.http.services.checkout.loadbalancer.server.port=8000
+
+volumes:
+  budtender_data:
