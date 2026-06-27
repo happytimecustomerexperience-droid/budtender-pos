@@ -1,6 +1,0 @@
-budtender
-budtender_pos
-core
-customers
-dutchie
-idscan

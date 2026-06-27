@@ -9,3 +9,7 @@ stores.json
 .ruff_cache/
 /staticfiles/
 media/
+
+*.egg-info/
+build/
+dist/
