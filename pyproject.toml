@@ -17,6 +17,15 @@ dependencies = [
 prod = ["gunicorn>=22"]
 dev = ["pytest>=8", "pytest-django>=4", "ruff>=0.6"]
 
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Explicit package list — the repo is a flat layout with non-package dirs
+# (deploy/, scripts/, tests/) that setuptools must not try to auto-discover.
+[tool.setuptools]
+packages = ["budtender", "budtender_pos", "core", "customers", "dutchie", "idscan"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
