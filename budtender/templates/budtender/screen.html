@@ -1,0 +1,75 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Budtender POS</title>
+  <link rel="stylesheet" href="{% static 'budtender/app.css' %}">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+<header>
+  <h1>Budtender POS</h1>
+  <select name="store" hx-preserve="true"
+          onchange="document.querySelectorAll('[name=store-mirror]').forEach(e=>e.value=this.value)">
+    {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  <span class="spacer"></span>
+  <a href="{% url 'logout' %}">Sign out</a>
+</header>
+
+<main>
+  <section class="card stack">
+    <h2>1 · Scan ID</h2>
+    <form hx-post="{% url 'scan' %}" hx-target="#profile" hx-encoding="multipart/form-data" class="stack">
+      <input type="hidden" name="store-mirror" value="{{ active }}" form="">
+      <input type="file" name="images" accept="image/*" capture="environment" multiple required>
+      <button type="submit">Scan &amp; match</button>
+    </form>
+    <hr style="border:none;border-top:1px solid #eef1f5;margin:4px 0">
+    <h2>or · Look up by phone / name</h2>
+    <form class="inline" hx-post="{% url 'lookup' %}" hx-target="#guests">
+      <input name="phone" placeholder="phone" inputmode="tel" autocomplete="off">
+      <input name="name" placeholder="name" autocomplete="off">
+      <button type="submit">Search</button>
+    </form>
+    <div id="guests"></div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Customer</h2>
+    {% if acct_id %}<div class="banner">Selected: <strong>{{ acct_name|default:"(name)" }}</strong> · Acct {{ acct_id }}</div>{% endif %}
+    <div id="profile" style="margin-top:8px">
+      {% if not acct_id %}<em class="muted">No customer selected.</em>{% endif %}
+    </div>
+  </section>
+
+  <section class="card span2 stack">
+    <h2>3 · Inventory</h2>
+    <form class="inline" hx-get="{% url 'inventory' %}" hx-target="#inventory">
+      <input name="q" placeholder="search product…" autocomplete="off">
+      <button type="submit">Search</button>
+    </form>
+    <div id="inventory"></div>
+  </section>
+
+  <section class="card span2 stack">
+    <h2>4 · Cart</h2>
+    <div id="cart">{% include "budtender/_cart.html" %}</div>
+    <form hx-post="{% url 'cart_submit' %}" hx-target="#submit-result">
+      <button type="submit">Submit cart → Ready for pickup</button>
+    </form>
+    <div id="submit-result"></div>
+  </section>
+</main>
+
+<script>
+  // keep the store choice on every htmx request (header select is outside the forms)
+  document.body.addEventListener('htmx:configRequest', e => {
+    const sel = document.querySelector('header select[name=store]');
+    if (sel) e.detail.parameters['store'] = sel.value;
+  });
+</script>
+</body>
+</html>

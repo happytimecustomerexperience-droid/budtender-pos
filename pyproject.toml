@@ -1,0 +1,28 @@
+[project]
+name = "budtender-pos"
+version = "0.1.0"
+description = "Budtender POS — scan ID, look up customer, build & submit a Dutchie register cart. Django, no n8n."
+requires-python = ">=3.11"
+dependencies = [
+    "Django>=5.0",
+    "curl_cffi>=0.7",   # Chrome TLS impersonation — beats Cloudflare on *.dutchie.com
+    "requests>=2.31",
+    "cryptography>=42",  # Fernet secret encryption at rest
+    "Pillow>=10",        # upload verify() guard
+    "whitenoise>=6",     # static serving at scale
+    "python-dotenv>=1",  # load .env (all secrets live there)
+]
+
+[project.optional-dependencies]
+prod = ["gunicorn>=22"]
+dev = ["pytest>=8", "pytest-django>=4", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+DJANGO_SETTINGS_MODULE = "budtender_pos.settings"
+testpaths = ["tests", "customers", "idscan", "budtender"]
+python_files = ["test_*.py"]

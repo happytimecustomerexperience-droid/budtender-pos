@@ -1,0 +1,23 @@
+{% if cart %}
+<div class="scroll">
+<table>
+  <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th></th></tr></thead>
+  <tbody>
+  {% for it in cart %}
+    <tr>
+      <td>{{ it.ProductDesc|default:it.ProductId }}</td>
+      <td>{{ it.Cnt|default:1 }}</td>
+      <td>${{ it.UnitPrice }}</td>
+      <td><form hx-post="{% url 'cart_remove' %}" hx-target="#cart">
+            <input type="hidden" name="idx" value="{{ forloop.counter0 }}">
+            <button class="ghost" style="min-height:36px">✕</button>
+          </form></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted">{{ cart|length }} line(s) in cart.</p>
+{% else %}
+<p class="muted">Cart empty — add items from inventory.</p>
+{% endif %}

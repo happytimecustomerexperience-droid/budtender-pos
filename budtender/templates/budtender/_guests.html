@@ -1,0 +1,19 @@
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if guests %}
+<div class="scroll">
+<table>
+  <thead><tr><th>Name</th><th>Phone</th><th>Last</th><th>Acct</th><th></th></tr></thead>
+  <tbody>
+  {% for g in guests %}
+    <tr>
+      <td>{{ g.name }}{% if g.patient_type %}<span class="hn">{{ g.patient_type }}</span>{% endif %}</td>
+      <td>{{ g.phone }}</td><td>{{ g.last }}</td><td>{{ g.acct_id }}</td>
+      <td><button class="ghost" style="min-height:38px"
+                  hx-get="{% url 'profile' %}?acct={{ g.acct_id }}&name={{ g.name|urlencode }}"
+                  hx-target="#profile">Select</button></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% elif query %}<p class="muted">No guests matched “{{ query }}”.</p>{% endif %}

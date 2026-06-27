@@ -1,0 +1,13 @@
+{
+  "yakima": {
+    "base_url": "https://ash.backoffice.dutchie.com",
+    "pos_base_url": "https://ash.pos.dutchie.com",
+    "org_id": 8002,
+    "lsp_id": 1745,
+    "loc_id": 3498,
+    "register_id": 8318,
+    "username": "REPLACE_ME@happytime.com",
+    "password": "REPLACE_ME_or_enc:v1:...",
+    "api_key": "REPLACE_with_REST_read_key"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "budtender",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["manage.py", "runserver", "127.0.0.1:8732", "--noreload"],
+      "port": 8732
+    }
+  ]
+}

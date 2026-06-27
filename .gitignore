@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.sqlite3
+.env
+stores.json
+.pytest_cache/
+.ruff_cache/
+/staticfiles/
+media/

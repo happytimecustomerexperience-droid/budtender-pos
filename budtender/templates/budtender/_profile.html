@@ -1,0 +1,39 @@
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+{% if warn %}<p class="warn">{{ warn }}</p>{% endif %}
+{% if scan or acct_id %}
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+    <strong style="font-size:16px">{{ scan.accts_name|default:"(name unknown)" }}</strong>
+    {% if scan.over_21 is not None %}
+      <span style="font-size:13px" class="{% if scan.over_21 %}badge-ok{% else %}badge-bad{% endif %}">
+        {% if scan.over_21 %}21+ ✓{% else %}UNDER 21 ✕{% endif %}{% if scan.age %} · age {{ scan.age }}{% endif %}
+      </span>
+    {% endif %}
+  </div>
+  <div class="muted" style="margin:4px 0 10px">
+    Acct <strong>{{ acct_id|default:"—" }}</strong>
+    {% if scan.phone %} · {{ scan.phone }}{% endif %}
+    {% if scan.mjstateidno %} · MJ {{ scan.mjstateidno }}{% endif %}
+  </div>
+
+  {% if history %}
+    <div class="kpi">
+      <div><b>{{ history.orders }}</b><span>orders</span></div>
+      <div><b>${{ history.total_spend|floatformat:0 }}</b><span>spend</span></div>
+      <div><b>${{ history.aov|floatformat:0 }}</b><span>AOV</span></div>
+      <div><b>{{ history.recency_days|default:"—" }}d</b><span>recency</span></div>
+    </div>
+    {% if history.top_products %}
+      <h2 style="margin-top:12px">Favorite products</h2>
+      <div class="scroll">
+      <table><thead><tr><th>Product</th><th>Rev</th><th>Units</th></tr></thead><tbody>
+        {% for p in history.top_products %}<tr><td>{{ p.product }}</td>
+          <td>${{ p.revenue|floatformat:2 }}</td><td>{{ p.units }}</td></tr>{% endfor %}
+      </tbody></table>
+      </div>
+    {% endif %}
+  {% else %}
+    <p class="muted">Purchase history unavailable (dashboard DB not wired).</p>
+  {% endif %}
+{% else %}
+  <em class="muted">No customer selected.</em>
+{% endif %}

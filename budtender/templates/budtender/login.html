@@ -1,0 +1,25 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Budtender POS</title>
+  <link rel="stylesheet" href="{% static 'budtender/app.css' %}">
+</head>
+<body>
+<header><h1>Budtender POS</h1></header>
+<div class="auth">
+  <div class="card stack">
+    <h2 style="text-transform:uppercase;color:#5b6677;font-size:13px;margin:0">Sign in</h2>
+    {% if form.errors %}<p class="err">Wrong username or password.</p>{% endif %}
+    <form method="post" action="{% url 'login' %}" class="stack">
+      {% csrf_token %}
+      <div><label for="id_username">Username</label>{{ form.username }}</div>
+      <div><label for="id_password">Password</label>{{ form.password }}</div>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

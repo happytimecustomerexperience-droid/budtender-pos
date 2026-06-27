@@ -1,0 +1,58 @@
+/* Budtender POS — mobile-first. Single column by default; 2-col on tablets+. */
+:root { --ink:#0E2A4F; --accent:#C2410C; --line:#e4e8ee; --muted:#5b6677; }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { font-family: system-ui, -apple-system, sans-serif; margin: 0; background:#f6f7f9;
+       color:#16202c; font-size:16px; }
+
+header { position: sticky; top:0; z-index:10; background: var(--ink); color:#fff;
+         padding: 10px 14px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+header h1 { font-size: 17px; margin:0; }
+header .spacer { margin-left:auto; }
+header a { color:#fff; opacity:.85; font-size:13px; text-decoration:none; }
+header select { min-height:40px; }
+
+main { display:grid; grid-template-columns: 1fr; gap:12px; padding:12px; max-width:1200px; margin:0 auto; }
+@media (min-width: 900px) {
+  main { grid-template-columns: 1fr 1fr; gap:16px; padding:16px; }
+  .span2 { grid-column: 1 / -1; }
+}
+
+.card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; }
+.card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);
+           margin:0 0 10px; }
+
+/* Touch-friendly controls: 44px min height, full-width on phones. */
+input, select, button, textarea { font: inherit; padding:10px 12px; border:1px solid #cfd6df;
+  border-radius:10px; min-height:44px; }
+input[type=file] { padding:8px; }
+button { background: var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+button:active { transform: translateY(1px); }
+button.ghost { background:#eef1f5; color:#16202c; }
+
+form.inline { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+form.inline input { flex:1 1 140px; }
+.stack > * + * { margin-top:10px; }
+
+/* Tables scroll horizontally on phones instead of breaking layout. */
+.scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+table { width:100%; border-collapse: collapse; font-size:14px; min-width:380px; }
+th, td { text-align:left; padding:8px; border-bottom:1px solid #eef1f5; white-space:nowrap; }
+
+.err { color:#b91c1c; font-size:14px; } .warn { color:#b45309; font-size:14px; }
+.muted { color:#8a93a0; font-size:14px; }
+.badge-ok { color:#15803d; } .badge-bad { color:#b91c1c; }
+.banner { background:#eef4ff; border:1px solid #cfe0ff; border-radius:10px; padding:8px 12px;
+          font-size:14px; }
+
+.kpi { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
+.kpi div { background:#f6f7f9; border-radius:8px; padding:8px 10px; }
+.kpi b { display:block; font-size:18px; }
+.kpi span { font-size:12px; color:var(--muted); }
+
+/* Auth */
+.auth { max-width:360px; margin:8vh auto; }
+.auth .card { padding:22px; }
+.auth label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+.auth input { width:100%; }
+.auth button { width:100%; margin-top:12px; }
