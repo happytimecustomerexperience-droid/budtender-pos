@@ -92,9 +92,98 @@ def logout_view(request):
     return redirect("login")
 
 
-# ── screen ───────────────────────────────────────────────────────────────────
+# ── begin session (start gate: scan ID + phone -> 21 check -> find/create) ─────
+@login_required
+def begin(request):
+    return render(request, "budtender/begin.html", {
+        "stores": list(_stores().keys()), "active": request.session.get("store"),
+    })
+
+
+@login_required
+def end_session(request):
+    for k in ("acct_id", "acct_name", "acct_phone", "cart"):
+        request.session.pop(k, None)
+    return redirect("begin")
+
+
+def _resolve_or_create(client, scan, phone):
+    """Look up by PHONE then by NAME (phone wins when both match); create from the
+    scan if neither exists. Returns (acct_id, name, how)."""
+    name = (scan.get("accts_name") or "").strip()
+    if phone:
+        g = _parse_guests(client.guest_search(phone))
+        if g:
+            return g[0]["acct_id"], g[0]["name"], "phone"
+    if name:
+        g = _parse_guests(client.guest_search(name))
+        if g:
+            return g[0]["acct_id"], g[0]["name"], "name"
+    if scan.get("first_name") and scan.get("birth_date"):
+        gid = client.create_guest(
+            first_name=scan["first_name"], last_name=scan.get("last_name", ""),
+            dob=scan["birth_date"], phone=phone or scan.get("phone", ""),
+            email=scan.get("email", ""), mj_state_id=scan.get("mjstateidno", ""))
+        if gid:
+            disp = scan.get("accts_name") or f"{scan['first_name']} {scan.get('last_name', '')}".strip()
+            return gid, disp, "created"
+    return None, None, "none"
+
+
+@login_required
+@rate_limit("start", limit=30, window=60)
+@require_http_methods(["POST"])
+def start(request):
+    from core.uploads import collect_id_images
+
+    store = _active_store(request)
+    phone = "".join(c for c in (request.POST.get("phone") or "") if c.isdigit())
+    ctx = {"stores": list(_stores().keys()), "active": request.session.get("store"), "phone": phone}
+    scan = {}
+    files = request.FILES.getlist("images")
+    if files:
+        try:
+            images = collect_id_images(files)
+        except Exception as exc:
+            ctx["error"] = f"upload rejected: {exc}"
+            return render(request, "budtender/begin.html", ctx)
+        from idscan.pipeline import run_id_scan
+        scan = run_id_scan(images)
+        if scan.get("error"):
+            ctx["error"] = f"scan failed: {scan['error']}"
+            return render(request, "budtender/begin.html", ctx)
+        ctx["scan"] = scan
+        if scan.get("over_21") is False:    # HARD age flag — do not start a session
+            ctx["under21"] = True
+            return render(request, "budtender/begin.html", ctx)
+    if not store:
+        ctx["error"] = "no store configured"
+        return render(request, "budtender/begin.html", ctx)
+    if not (phone or scan):
+        ctx["error"] = "Scan an ID or enter a phone number to begin."
+        return render(request, "budtender/begin.html", ctx)
+
+    phone = phone or "".join(c for c in (scan.get("phone") or "") if c.isdigit())
+    try:
+        acct_id, name, how = _resolve_or_create(_client(store), scan, phone)
+    except Exception as exc:
+        ctx["error"] = f"lookup failed: {exc}"
+        return render(request, "budtender/begin.html", ctx)
+    if not acct_id:
+        ctx["error"] = "No account for that phone — scan the customer's ID to create one."
+        return render(request, "budtender/begin.html", ctx)
+
+    if scan:
+        upsert_customer({**scan, "phone": phone}, dutchie_acct_id=acct_id)
+    request.session.update(acct_id=acct_id, acct_name=name, acct_phone=phone, cart=[])
+    return redirect("screen")
+
+
+# ── POS screen (requires an active session) ────────────────────────────────────
 @login_required
 def screen(request):
+    if not request.session.get("acct_id"):
+        return redirect("begin")
     return render(request, "budtender/screen.html", {
         "stores": list(_stores().keys()),
         "active": request.session.get("store"),

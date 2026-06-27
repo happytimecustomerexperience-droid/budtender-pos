@@ -22,7 +22,10 @@ from . import imagemap, ranking, suggest
 
 logger = logging.getLogger(__name__)
 
-_INV_TTL = 600  # 10 min — product_SearchV2 is a slow full pull
+# Long TTL: the `warm_menu` command (every ~8 min) keeps the shared (Redis) cache
+# hot, so a customer-facing request NEVER pays the slow product_SearchV2 pull. The
+# entry only expires if warming stops. Tune with the warmer interval.
+_INV_TTL = 3600
 
 CAT_LABELS = {
     "flower": "Flower", "pre-rolls": "Pre-Rolls", "vapes": "Vapes",
@@ -75,17 +78,27 @@ def _normalize(row, enr):
 
 
 def get_inventory(store_key, force=False):
-    """Cached, normalized + enriched live inventory for a store."""
+    """Cached, normalized + enriched live inventory for a store. A stampede lock
+    keeps 3-5 concurrent cold requests from each firing the slow pull — losers serve
+    the stale entry. The warmer keeps it hot so requests almost never pull live."""
     ck = f"inv:{store_key}"
     if not force:
         cached = cache.get(ck)
         if cached is not None:
             return cached
-    rows = PosRegisterClient(get_store(store_key)).product_search()
-    enr = load_product_enrichment(store_key)
-    items = [_normalize(r, enr) for r in rows if isinstance(r, dict)]
-    cache.set(ck, items, _INV_TTL)
-    return items
+    lock = f"inv:lock:{store_key}"
+    if not force and not cache.add(lock, "1", 90):
+        stale = cache.get(ck)
+        if stale is not None:
+            return stale  # another worker is refreshing; serve stale
+    try:
+        rows = PosRegisterClient(get_store(store_key)).product_search()
+        enr = load_product_enrichment(store_key)
+        items = [_normalize(r, enr) for r in rows if isinstance(r, dict)]
+        cache.set(ck, items, _INV_TTL)
+        return items
+    finally:
+        cache.delete(lock)
 
 
 def categories(items):

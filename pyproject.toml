@@ -12,6 +12,7 @@ dependencies = [
     "whitenoise>=6",     # static serving at scale
     "python-dotenv>=1",  # load .env (all secrets live there)
     "psycopg[binary]>=3.1",  # read-only customer profiles from happytime-budtender
+    "redis>=5",              # shared cache across workers + warmer (no per-request lag)
 ]
 
 [project.optional-dependencies]

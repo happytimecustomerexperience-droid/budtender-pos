@@ -14,11 +14,14 @@ services:
       - .env
     environment:
       BUDTENDER_DB_PATH: /data/db.sqlite3   # persisted on the named volume
+      REDIS_URL: redis://redis:6379/0       # shared cache (menu served warm, no lag)
     volumes:
       - budtender_data:/data
     expose:
       - "8000"
     restart: unless-stopped
+    depends_on:
+      - redis
     networks:
       - default
       - hht                                  # reach happytime-budtender's Postgres (read-only)
@@ -30,6 +33,30 @@ services:
       - traefik.http.routers.checkout.tls=true
       - traefik.http.routers.checkout.tls.certresolver=letsencrypt
       - traefik.http.services.checkout.loadbalancer.server.port=8000
+
+  # Shared cache so all web workers + the warmer hit ONE warm inventory entry.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  # Keeps the per-store inventory cache hot (~every 8 min) so customer requests
+  # never pay the slow product_SearchV2 pull — smooth for 3-5 concurrent budtenders.
+  warmer:
+    build: .
+    env_file:
+      - .env
+    environment:
+      BUDTENDER_DB_PATH: /data/db.sqlite3
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - budtender_data:/data
+    restart: unless-stopped
+    depends_on:
+      - redis
+    networks:
+      - default
+      - hht
+    command: sh -c "sleep 10; while true; do python manage.py warm_menu || true; sleep 480; done"
 
 networks:
   default:

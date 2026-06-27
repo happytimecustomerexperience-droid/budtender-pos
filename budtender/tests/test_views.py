@@ -50,11 +50,54 @@ def test_login_required(client):
     assert r.status_code == 302 and "/login/" in r.url
 
 
-def test_screen_ok(auth, monkeypatch):
+def test_begin_renders(auth, monkeypatch):
+    _use_store(monkeypatch)
+    r = auth.get(reverse("begin"), SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"Begin a new session" in r.content
+
+
+def test_screen_requires_session(auth, monkeypatch):
     _use_store(monkeypatch)
     r = auth.get(reverse("screen"), SERVER_NAME="localhost")
-    assert r.status_code == 200
-    assert b"Budtender POS" in r.content
+    assert r.status_code == 302 and r.url == reverse("begin")  # no customer -> start gate
+
+
+def test_screen_ok_with_session(auth, monkeypatch):
+    _use_store(monkeypatch)
+    s = auth.session
+    s["acct_id"] = 1
+    s["acct_name"] = "Jane"
+    s.save()
+    r = auth.get(reverse("screen"), SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"Budtender POS" in r.content
+
+
+def test_resolve_prefers_phone(monkeypatch):
+    from budtender.views import _resolve_or_create
+
+    class FC:
+        def guest_search(self, query):
+            if query == "5095551234":
+                return {"Data": [{"Guest_id": 111, "Name": "Phone Match", "PhoneNo": "5095551234"}]}
+            return {"Data": [{"Guest_id": 222, "Name": "Name Match"}]}
+
+    acct, name, how = _resolve_or_create(FC(), {"accts_name": "John Name"}, "5095551234")
+    assert acct == 111 and how == "phone"
+
+
+def test_resolve_creates_when_none(monkeypatch):
+    from budtender.views import _resolve_or_create
+
+    class FC:
+        def guest_search(self, query):
+            return {"Data": []}
+
+        def create_guest(self, **kw):
+            return 999
+
+    scan = {"accts_name": "New Guy", "first_name": "New", "last_name": "Guy", "birth_date": "1990-01-01"}
+    acct, name, how = _resolve_or_create(FC(), scan, "5090000000")
+    assert acct == 999 and how == "created"
 
 
 def test_lookup_degrades_without_store(auth, monkeypatch):

@@ -3,7 +3,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("", views.screen, name="screen"),
+    path("", views.begin, name="begin"),
+    path("pos/", views.screen, name="screen"),
+    path("start/", views.start, name="start"),
+    path("end/", views.end_session, name="end"),
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("scan/", views.scan, name="scan"),

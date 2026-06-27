@@ -148,6 +148,34 @@ class PosRegisterClient(PosClient):
         logger.info("guest_search(%r) -> %d match(es)", query, n)
         return data
 
+    @staticmethod
+    def _dob_iso(dob: str) -> str:
+        """'YYYY-MM-DD' -> the ISO form Dutchie's create expects."""
+        d = (dob or "").strip()[:10]
+        return f"{d}T08:00:00.000Z" if len(d) == 10 else ""
+
+    def create_guest(self, *, first_name: str, last_name: str, dob: str, phone: str,
+                     email: str = "", mj_state_id: str = "", dl_id: str = "",
+                     customer_type: int = 2) -> int | None:
+        """POST /api/v2/guest/create (Recreational by default) -> new Guest_id (AcctId).
+        Mirrors the captured create payload exactly."""
+        body = {
+            "FirstName": first_name or "", "LastName": last_name or "", "status": "Active",
+            "street": "", "street2": "", "city": "", "state": "", "postal_code": "",
+            "MJStateIDNo": mj_state_id or "", "MJStateIDStartDate": "", "MMJIDState": "",
+            "ExpirationDate": "", "CertificationCollectionDate": "", "CertificationExpirationDate": "",
+            "CustomerTypeId": int(customer_type), "PhoneNo": phone or "", "CellPhone": "",
+            "country_code": "US", "DLExpirationDate": "", "DriversLicenseId": dl_id or "",
+            "DOB": self._dob_iso(dob), "email": email or "",
+            **self.session_block(with_register=False),
+        }
+        data = self.post("/api/v2/guest/create", body)
+        d = (data or {}).get("Data") or []
+        row = d[0] if isinstance(d, list) and d else {}
+        gid = row.get("Guest_id")
+        logger.info("create_guest -> %s", gid)
+        return int(gid) if gid else None
+
     def guest_details_light(self, acct_id: int) -> dict:
         """POST /api/v2/guest/details-light {CustomerId} -> light profile."""
         body = {"CustomerId": int(acct_id), **self.session_block(with_register=False)}
