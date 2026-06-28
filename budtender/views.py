@@ -20,11 +20,12 @@ from django.views.decorators.http import require_http_methods
 
 from core.ratelimit import rate_limit
 from customers.intelligence import load_customer_history, load_profile_full
+from customers.models import Customer
 from customers.services import record_write, upsert_customer
 from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
 
-from . import catalog, education
+from . import catalog, education, imagemap
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +336,129 @@ def profile(request):
     return resp
 
 
+# ── customer profile (2 pages: preview + full transaction history) ─────────────
+def _affw(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ranked_affinity(aff, n=6):
+    """Top-n of a {name: weight} affinity dict -> [{name, weight, pct, share}].
+    `pct` = bar width relative to the top item; `share` = weight as a percent only
+    when it looks like a fraction (0<w<=1), else None (so raw counts don't show 600%)."""
+    if not aff:
+        return []
+    pairs = sorted(((str(k), _affw(v)) for k, v in aff.items()),
+                   key=lambda x: x[1], reverse=True)[:n]
+    mx = pairs[0][1] or 1.0
+    return [{"name": k, "weight": w, "pct": round(w / mx * 100),
+             "share": round(w * 100) if 0 < w <= 1 else None} for k, w in pairs]
+
+
+def _fav_products(hist, n=6):
+    rows = [h for h in (hist or []) if h.get("product") or h.get("sku")]
+    return sorted(rows, key=lambda h: _affw(h.get("times_bought")), reverse=True)[:n]
+
+
+def _fav_strains(hist, n=8):
+    agg = {}
+    for h in hist or []:
+        s = (h.get("strain") or "").strip()
+        if not s:
+            continue
+        a = agg.setdefault(s, {"strain": s, "times": 0, "type": h.get("strain_type") or ""})
+        a["times"] += int(_affw(h.get("times_bought")) or 1)
+    return sorted(agg.values(), key=lambda a: a["times"], reverse=True)[:n]
+
+
+def _per_category_picks(profile, inv, n_cats=4, per=2):
+    """Their best in-stock items in each of their favorite categories (affinity-ordered)."""
+    if not inv or not profile:
+        return []
+    seen, picks = set(), []
+    for raw, _w in sorted((profile.get("category_affinity") or {}).items(),
+                          key=lambda kv: _affw(kv[1]), reverse=True):
+        ck = imagemap.category_key(raw) or "other"
+        if ck in seen:
+            continue
+        seen.add(ck)
+        items = catalog.query(inv, profile, {"cat": ck, "sort": "foryou"})[:per]
+        if items:
+            picks.append({"key": ck, "label": catalog.CAT_LABELS.get(ck, str(raw).title()),
+                          "items": items})
+        if len(picks) >= n_cats:
+            break
+    return picks
+
+
+def _customer_ctx(request, full):
+    acct_id = request.session.get("acct_id")
+    phone = request.session.get("acct_phone") or ""
+    name = request.session.get("acct_name") or ""
+    profile = load_profile_full(phone) if phone else None
+    store = _active_store(request)
+    cust = None
+    if acct_id and str(acct_id).isdigit():
+        cust = Customer.objects.filter(dutchie_acct_id=int(acct_id)).first()
+    if cust is None and phone:
+        cust = Customer.objects.filter(phone=phone).first()
+    inv = []
+    if store:
+        try:
+            inv = catalog.get_inventory(store.name)
+        except Exception as exc:
+            logger.warning("customer inv load failed: %s", exc)
+    # purchase_history comes from an uncontrolled remote DB; keep only dict rows so a
+    # stray null/string element degrades instead of 500-ing (same guard as ranking/suggest).
+    hist = [h for h in ((profile or {}).get("purchase_history") or []) if isinstance(h, dict)]
+    sugg = catalog.suggestions(store.name, profile, 8) if (store and profile) else []
+    if not sugg and inv:                      # new/anon customer: top picks, never empty
+        sugg = catalog.query(inv, profile, {"sort": "foryou"})[:8]
+    ctx = {
+        "acct_id": acct_id, "acct_name": name, "acct_phone": phone,
+        "cust": cust, "profile": profile, "cart": request.session.get("cart", []),
+        "fav_categories": _ranked_affinity((profile or {}).get("category_affinity"), 6),
+        "fav_brands": _ranked_affinity((profile or {}).get("brand_affinity"), 6),
+        "fav_strain_types": _ranked_affinity((profile or {}).get("strain_type_affinity"), 5),
+        "fav_subcats": _ranked_affinity((profile or {}).get("subcategory_affinity"), 6),
+        "fav_terpenes": _ranked_affinity((profile or {}).get("terpene_affinity"), 6),
+        "bucket_mix": _ranked_affinity((profile or {}).get("bucket_mix"), 3),
+        "fav_strains": _fav_strains(hist, 8),
+        "fav_products": _fav_products(hist, 6),
+        "suggestions": sugg,
+        "picks": _per_category_picks(profile, inv, n_cats=4, per=2),
+        "history_count": len(hist),
+    }
+    if full:
+        for h in hist:
+            h["spend"] = round(_affw(h.get("last_price")) * _affw(h.get("qty")), 2)
+        ctx["history"] = sorted(hist, key=lambda h: str(h.get("last_bought_at") or ""), reverse=True)
+        ctx["kpi_units"] = round(sum(_affw(h.get("qty")) for h in hist))
+        ctx["kpi_spend"] = round(sum(h.get("spend", 0) for h in hist))
+        ctx["kpi_products"] = len(hist)
+    return ctx
+
+
+@login_required
+@rate_limit("customer", limit=60, window=60)
+@require_http_methods(["GET"])
+def customer(request):
+    if not request.session.get("acct_id"):
+        return redirect("screen")
+    return render(request, "budtender/customer_preview.html", _customer_ctx(request, full=False))
+
+
+@login_required
+@rate_limit("customer", limit=60, window=60)
+@require_http_methods(["GET"])
+def customer_full(request):
+    if not request.session.get("acct_id"):
+        return redirect("screen")
+    return render(request, "budtender/customer_full.html", _customer_ctx(request, full=True))
+
+
 def _filters(request):
     g = request.GET
 
@@ -370,6 +494,12 @@ def menu(request):
         logger.warning("menu load failed: %s", exc)
         ctx["error"] = "Menu unavailable — refresh in a moment."
         return render(request, "budtender/_menu.html", ctx)
+    facets = catalog.facets(items)
+    # DOH defaults ON (owner rule) when the catalog has DOH products and the user
+    # hasn't interacted with the filter form yet (the hidden `f=1` sentinel). Once
+    # they toggle filters, the checkbox state is respected (unchecked -> off).
+    if facets["has_doh"] and request.GET.get("f") != "1":
+        f["doh_only"] = True
     results = catalog.query(items, profile, f)
     total = len(results)
     pages = max(1, (total + MENU_PAGE - 1) // MENU_PAGE)
@@ -378,7 +508,7 @@ def menu(request):
     ctx.update(
         products=results[start_i:start_i + MENU_PAGE], total=total,
         page=page, pages=pages, has_prev=page > 1, has_next=page < pages,
-        cats=catalog.categories(items), facets=catalog.facets(items), f=f,
+        cats=catalog.categories(items), facets=facets, f=f,
         has_customer=bool(profile), acct_name=request.session.get("acct_name"),
         suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
     )

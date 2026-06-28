@@ -16,6 +16,7 @@
     {% elif acct_id %}
       <span class="muted">No taste profile yet</span>
     {% endif %}
+    {% if acct_id %}<a class="viewfull" href="{% url 'customer' %}">View full profile →</a>{% endif %}
   </div>
 {% else %}
   <span class="muted">No customer selected.</span>

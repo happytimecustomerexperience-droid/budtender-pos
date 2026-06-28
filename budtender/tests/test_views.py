@@ -202,6 +202,101 @@ _SERVER_ROW = {"ProductId": 1, "BatchId": 2, "SerialNo": "S1", "UnitPrice": 25.0
                "RecUnitPrice": 25.0, "ProductDesc": "Real Product", "CannbisProduct": "Yes"}
 
 
+def _profile_fixture():
+    return {
+        "orders": 12, "last_purchase": "2026-06-01T10:00:00", "price_tier": "mid",
+        "novelty_score": 0.3,
+        "brand_affinity": {"Phat Panda": 0.5, "1UP": 0.3},
+        "category_affinity": {"Flower": 0.6, "Vaporizer": 0.4},
+        "strain_type_affinity": {"hybrid": 0.7, "indica": 0.3},
+        "subcategory_affinity": {"3.5g": 0.5}, "terpene_affinity": {"myrcene": 0.6},
+        "bucket_mix": {"core": 0.5, "traffic": 0.3, "profit": 0.2},
+        "purchase_history": [
+            {"product": "Phat Panda Blue Dream 3.5g", "sku": "A", "brand": "Phat Panda",
+             "category": "Flower", "subcategory": "3.5g", "strain": "Blue Dream",
+             "strain_type": "hybrid", "qty": 6, "times_bought": 3,
+             "last_bought_at": "2026-06-01", "last_price": 40},
+            {"product": "1UP Cart 1g", "sku": "B", "brand": "1UP", "category": "Vaporizer",
+             "strain": "OG Kush", "strain_type": "indica", "qty": 2, "times_bought": 1,
+             "last_bought_at": "2026-05-20", "last_price": 25},
+        ],
+    }
+
+
+def _inv_item():
+    return {
+        "product_id": "5001", "name": "Phat Panda Flower Blue Dream 3.5g", "brand": "Phat Panda",
+        "raw_category": "Flower", "category": "Flower", "cat_key": "flower", "cat_label": "Flower",
+        "strain": "Blue Dream", "strain_type": "hybrid", "terpene": "myrcene",
+        "effects": ["relaxed"], "flavors": ["berry"], "potency_mg": None,
+        "thc": 24.0, "cbd": 0.0, "total_terpenes": 2.0, "price": 40.0, "price_was": 0,
+        "qty": 12, "image": "", "img": None, "img_static": True, "received_date": "2026-06-10",
+        "vendor": "Grower", "unit_grams": 3.5, "bucket": "core", "velocity": 5.0,
+        "margin_pct": 0.5, "price_z": 0.0, "subcategory": "3.5g",
+        "ProductId": 5001, "BatchId": 6001, "SerialNo": "S1", "UnitPrice": 40.0,
+        "RecUnitPrice": 40.0, "ProductDesc": "Phat Panda Flower Blue Dream 3.5g", "CannbisProduct": "Yes",
+    }
+
+
+def _sel_customer(auth):
+    s = auth.session
+    s["acct_id"] = "770001"
+    s["acct_name"] = "Jane Doe"
+    s["acct_phone"] = "5095550100"
+    s.save()
+
+
+def test_customer_requires_session(auth, monkeypatch):
+    _use_store(monkeypatch)
+    r = auth.get(reverse("customer"), SERVER_NAME="localhost")
+    assert r.status_code == 302 and r.url == reverse("screen")
+
+
+def test_customer_preview_renders(auth, monkeypatch):
+    _use_store(monkeypatch)
+    _sel_customer(auth)
+    monkeypatch.setattr(V, "load_profile_full", lambda phone: _profile_fixture())
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
+    r = auth.get(reverse("customer"), SERVER_NAME="localhost")
+    body = r.content
+    assert r.status_code == 200
+    assert b"Jane Doe" in body
+    assert b"Favorite categories" in body and b"Favorite brands" in body
+    assert b"Phat Panda" in body and b"Blue Dream" in body
+    assert b"Open full profile" in body and b"Best for" in body
+
+
+def test_customer_full_renders(auth, monkeypatch):
+    _use_store(monkeypatch)
+    _sel_customer(auth)
+    monkeypatch.setattr(V, "load_profile_full", lambda phone: _profile_fixture())
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
+    r = auth.get(reverse("customer_full"), SERVER_NAME="localhost")
+    body = r.content
+    assert r.status_code == 200
+    assert b"All transactions" in body and b"Buying mix" in body and b"Units bought" in body
+    assert b"Blue Dream" in body and b"OG Kush" in body   # both history rows
+
+
+def test_customer_full_degrades_on_malformed_history(auth, monkeypatch):
+    """A stray non-dict / mixed-type row from the uncontrolled remote DB must degrade,
+    not 500 (matches the isinstance guard ranking/suggest already use)."""
+    _use_store(monkeypatch)
+    _sel_customer(auth)
+    prof = _profile_fixture()
+    prof["purchase_history"] = [
+        None, "garbage", 42,                                   # non-dict junk
+        {"product": "Good", "brand": "B", "qty": 1, "times_bought": 1,
+         "last_bought_at": 1234567890, "last_price": 10},      # int epoch (mixed type)
+        {"product": "Good2", "brand": "B", "qty": 2, "times_bought": 2,
+         "last_bought_at": "2026-06-01", "last_price": 20},    # str date
+    ]
+    monkeypatch.setattr(V, "load_profile_full", lambda phone: prof)
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
+    r = auth.get(reverse("customer_full"), SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"All transactions" in r.content
+
+
 def test_product_detail_renders(auth, monkeypatch):
     _use_store(monkeypatch)
     s = auth.session
