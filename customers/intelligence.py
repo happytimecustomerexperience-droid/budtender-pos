@@ -172,7 +172,8 @@ def load_product_enrichment(store_key):
             cur.execute(
                 """
                 SELECT product_id, sku, strain_type, dominant_terpene, effects, bucket,
-                       velocity, margin_pct, price_z, subcategory, image_url, price_was
+                       velocity, margin_pct, price_z, subcategory, image_url, price_was,
+                       flavors, potency_mg, thc_percent
                 FROM budtender_product WHERE location_slug = %s
                 """,
                 (slug,),
@@ -183,7 +184,8 @@ def load_product_enrichment(store_key):
                     "effects": r[4] or [], "bucket": r[5] or "",
                     "velocity": r[6], "margin_pct": r[7], "price_z": r[8],
                     "subcategory": r[9] or "", "image_url": r[10] or "",
-                    "price_was": r[11],
+                    "price_was": r[11], "flavors": r[12] or [],
+                    "potency_mg": r[13], "thc_percent": r[14],
                 }
                 if r[0] is not None:
                     out[str(r[0])] = rec

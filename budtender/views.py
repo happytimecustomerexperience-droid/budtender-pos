@@ -24,7 +24,7 @@ from customers.services import record_write, upsert_customer
 from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
 
-from . import catalog
+from . import catalog, education
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +382,32 @@ def menu(request):
         suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
     )
     return render(request, "budtender/_menu.html", ctx)
+
+
+@login_required
+@rate_limit("product", limit=240, window=60)
+@require_http_methods(["GET"])
+def product(request, product_id):
+    """Full product detail page — lab data, terpene + effect explanations (Dutchie/
+    happytimeweed style). Reads the trusted cached inventory row by ProductId."""
+    if not request.session.get("acct_id"):
+        return redirect("begin")
+    store = _active_store(request)
+    p = catalog.find_item(store.name, product_id=product_id) if store else None
+    if not p:
+        return render(request, "budtender/product.html",
+                      {"missing": True, "acct_name": request.session.get("acct_name")})
+    effects = [(e, education.effect_info(e)) for e in (p.get("effects") or [])]
+    terp_aroma_effect = education.terpene_info(p.get("terpene"))
+    similar = [s for s in catalog.query(catalog.get_inventory(store.name), None,
+                                        {"cat": p["cat_key"], "sort": "popular"})
+               if str(s.get("product_id")) != str(p.get("product_id"))][:6]
+    return render(request, "budtender/product.html", {
+        "p": p, "effects": effects, "terp": terp_aroma_effect,
+        "strain_blurb": education.strain_type_info(p.get("strain_type")),
+        "similar": similar, "cart": request.session.get("cart", []),
+        "acct_name": request.session.get("acct_name"),
+    })
 
 
 _TRUSTED_ITEM_KEYS = ("ProductId", "BatchId", "SerialNo", "UnitPrice",

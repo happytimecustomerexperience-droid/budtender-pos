@@ -202,6 +202,35 @@ _SERVER_ROW = {"ProductId": 1, "BatchId": 2, "SerialNo": "S1", "UnitPrice": 25.0
                "RecUnitPrice": 25.0, "ProductDesc": "Real Product", "CannbisProduct": "Yes"}
 
 
+def test_product_detail_renders(auth, monkeypatch):
+    _use_store(monkeypatch)
+    s = auth.session
+    s["acct_id"] = 1
+    s.save()
+    p = {"product_id": "3498331", "ProductId": 3498331, "name": "1UP Cartridge",
+         "brand": "1UP", "cat_key": "vapes", "cat_label": "Vapes", "strain": "Black Cherry",
+         "strain_type": "hybrid", "thc": 80.0, "cbd": 0.0, "total_terpenes": None,
+         "terpene": "myrcene", "effects": ["relaxed", "happy"], "flavors": ["cherry"],
+         "potency_mg": None, "price": 25.0, "price_was": 0, "qty": 10, "img": None,
+         "subcategory": "", "received_date": "2026-06-01T00:00:00", "vendor": "1UP",
+         "unit_grams": 1, "velocity": 0, "margin_pct": 0, "bucket": ""}
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(p))
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda s: [dict(p)])
+    r = auth.get(reverse("product", args=["3498331"]), SERVER_NAME="localhost")
+    body = r.content
+    assert r.status_code == 200
+    assert b"1UP Cartridge" in body and b"Lab data" in body
+    assert b"Myrcene" in body and b"Earthy" in body          # terpene + explanation
+    assert b"Relaxed" in body and b"winding down" in body     # effect + explanation
+    assert b"Hybrid" in body                                  # strain type
+
+
+def test_product_detail_requires_session(auth, monkeypatch):
+    _use_store(monkeypatch)
+    r = auth.get(reverse("product", args=["1"]), SERVER_NAME="localhost")
+    assert r.status_code == 302 and r.url == reverse("begin")
+
+
 def test_cart_add_uses_server_price_not_client(auth, monkeypatch):
     _use_store(monkeypatch)
     monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))

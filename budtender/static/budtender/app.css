@@ -107,6 +107,32 @@ main{padding:16px 18px 40px;max-width:1500px;margin:0 auto}
 .pcard .addrow input{width:54px;min-height:40px;padding:6px;text-align:center}
 .pcard .addrow button{flex:1;min-height:40px;padding:6px}
 
+.pcard a.plink{color:inherit;text-decoration:none;display:block}
+.pcard a.plink:hover .name{color:var(--amber)}
+
+/* ── product detail page ── */
+.detail{max-width:980px;margin:0 auto}
+.card{background:var(--ink);border:1px solid var(--line);border-radius:var(--r);padding:16px;box-shadow:var(--card)}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--sage);margin:0 0 10px}
+.dhero{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px}
+@media(min-width:760px){.dhero{grid-template-columns:360px 1fr}}
+.dimg{position:relative;aspect-ratio:4/3;background:var(--imgbg);border-radius:var(--r);display:flex;
+  align-items:center;justify-content:center;overflow:hidden;padding:18px}
+.dimg img{max-width:90%;max-height:90%;object-fit:contain}
+.dimg .brandname{font-family:'Bebas Neue',sans-serif;font-size:42px;color:#0f1a24;text-align:center}
+.dinfo h1{font-size:24px;margin:4px 0 10px;line-height:1.15}
+.dbadges{margin-bottom:10px}
+.dprice{display:flex;gap:12px;align-items:baseline}
+.dprice .price{font-size:30px;font-weight:800}
+.lab{display:flex;flex-direction:column;gap:12px}
+.labrow{display:flex;align-items:center;gap:12px;font-size:14px}
+.labrow span:first-child{width:120px;color:var(--sage)}
+.labrow .bar{flex:1;height:12px;border-radius:7px;background:var(--fog);overflow:hidden}
+.labrow .bar i{display:block;height:100%;border-radius:7px}
+.labrow b{width:64px;text-align:right}
+.efx{padding:7px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.efx:last-child{border-bottom:none}
+
 /* suggestions rail */
 .rail{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px}
 .rail .pcard{min-width:180px;max-width:200px}
