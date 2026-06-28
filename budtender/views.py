@@ -14,6 +14,7 @@ from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 
 from core.ratelimit import rate_limit
@@ -107,6 +108,14 @@ def end_session(request):
     return redirect("begin")
 
 
+def _start_session(request, acct_id, name, phone):
+    request.session["acct_id"] = acct_id
+    request.session["acct_name"] = name
+    request.session["acct_phone"] = phone
+    request.session["cart"] = []
+    return redirect("screen")
+
+
 def _resolve_or_create(client, scan, phone):
     """Look up by PHONE then by NAME (phone wins when both match); create from the
     scan if neither exists. Returns (acct_id, name, how)."""
@@ -139,6 +148,22 @@ def start(request):
     store = _active_store(request)
     phone = "".join(c for c in (request.POST.get("phone") or "") if c.isdigit())
     ctx = {"stores": list(_stores().keys()), "active": request.session.get("store"), "phone": phone}
+
+    # "Continue as guest" — quick anonymous Dutchie guest, no profile needed.
+    if request.POST.get("guest"):
+        if not store:
+            ctx["error"] = "no store configured"
+            return render(request, "budtender/begin.html", ctx)
+        try:
+            gid = _client(store).create_guest(first_name="Guest", last_name="", dob="", phone="")
+        except Exception as exc:
+            ctx["error"] = f"guest start failed: {exc}"
+            return render(request, "budtender/begin.html", ctx)
+        if not gid:
+            ctx["error"] = "could not start a guest session"
+            return render(request, "budtender/begin.html", ctx)
+        return _start_session(request, gid, "Guest", "")
+
     scan = {}
     files = request.FILES.getlist("images")
     if files:
@@ -170,16 +195,13 @@ def start(request):
         ctx["error"] = f"lookup failed: {exc}"
         return render(request, "budtender/begin.html", ctx)
     if not acct_id:
-        ctx["error"] = "No account for that phone — scan the customer's ID to create one."
+        # No match + nothing to create from → offer Create-profile (scan) or Guest.
+        ctx["no_account"] = True
         return render(request, "budtender/begin.html", ctx)
 
     if scan:
         upsert_customer({**scan, "phone": phone}, dutchie_acct_id=acct_id)
-    request.session["acct_id"] = acct_id
-    request.session["acct_name"] = name
-    request.session["acct_phone"] = phone
-    request.session["cart"] = []
-    return redirect("screen")
+    return _start_session(request, acct_id, name, phone)
 
 
 # ── POS screen (requires an active session) ────────────────────────────────────
@@ -375,8 +397,14 @@ def cart_submit(request):
                      shipment_id=result["shipment_id"],
                      summary=f"{len(cart)} items -> Ready for pickup",
                      username=getattr(request.user, "username", ""))
-        request.session["cart"] = []
+        # Checkout done → clear the session and bounce to the start page for the
+        # next customer (HX-Redirect makes htmx do a full client-side navigation).
+        for k in ("acct_id", "acct_name", "acct_phone", "cart"):
+            request.session.pop(k, None)
         ctx["result"] = result
+        resp = render(request, "budtender/_submit_result.html", ctx)
+        resp["HX-Redirect"] = reverse("begin")
+        return resp
     except Exception as exc:
         record_write(store.name, "submit", ok=False,
                      acct_id=int(acct_id) if str(acct_id).isdigit() else None,

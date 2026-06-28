@@ -216,6 +216,20 @@ def test_submit_happy_path_audits(auth, monkeypatch):
     s.save()
     r = auth.post(reverse("cart_submit"), {}, SERVER_NAME="localhost")
     assert r.status_code == 200 and b"Shipment 999" in r.content
-    assert auth.session["cart"] == []  # cleared
+    assert r["HX-Redirect"] == reverse("begin")          # auto-return to start
+    assert "acct_id" not in auth.session and "cart" not in auth.session  # session cleared
     audit = DutchieWriteAudit.objects.latest("created_at")
     assert audit.ok and audit.shipment_id == 999 and audit.action == "submit"
+
+
+def test_start_continue_as_guest(auth, monkeypatch):
+    _use_store(monkeypatch)
+
+    class GC:
+        def create_guest(self, **kw):
+            return 47532853
+
+    monkeypatch.setattr(V, "_client", lambda s: GC())
+    r = auth.post(reverse("start"), {"guest": "1", "store": "yakima"}, SERVER_NAME="localhost")
+    assert r.status_code == 302 and r.url == reverse("screen")
+    assert auth.session["acct_id"] == 47532853 and auth.session["acct_name"] == "Guest"
