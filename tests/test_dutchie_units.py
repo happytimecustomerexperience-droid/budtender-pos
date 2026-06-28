@@ -8,7 +8,7 @@ from dutchie.stores import load_stores
 from dutchie.transport import headers
 
 STORE = Store(name="yakima", base_url="https://bo", pos_base_url="https://pos",
-              org_id=8002, lsp_id=1745, loc_id=3498, register_id=8318,
+              org_id=700002, lsp_id=700045, loc_id=700498, register_id=700318,
               username="u", password="p")
 
 
@@ -16,8 +16,8 @@ def test_session_block_shape():
     c = PosClient(STORE)
     c._pinned = EmployeeSession("ck", "SID", 95602)
     b = c.session_block(with_register=True)
-    assert b == {"SessionId": "SID", "LspId": "1745", "LocId": "3498",
-                 "OrgId": "8002", "UserId": "95602", "Register": 8318}
+    assert b == {"SessionId": "SID", "LspId": "700045", "LocId": "700498",
+                 "OrgId": "700002", "UserId": "95602", "Register": 700318}
     assert "Register" not in c.session_block(with_register=False)
 
 

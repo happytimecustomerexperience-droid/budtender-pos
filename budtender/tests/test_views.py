@@ -14,7 +14,7 @@ from dutchie.session import Store
 pytestmark = pytest.mark.django_db
 
 STORE = Store(name="yakima", base_url="https://bo", pos_base_url="https://pos",
-              org_id=8002, lsp_id=1745, loc_id=3498, register_id=8318,
+              org_id=700002, lsp_id=700045, loc_id=700498, register_id=700318,
               username="u", password="p", api_key="k")
 
 
@@ -75,10 +75,10 @@ def test_screen_ok_with_session(auth, monkeypatch):
 def test_start_phone_match_sets_session_and_redirects(auth, monkeypatch):
     _use_store(monkeypatch)
     monkeypatch.setattr(V, "_client", lambda s: FakeClient(guests={"Data": [
-        {"Guest_id": 47531504, "Name": "Jane Doe", "PhoneNo": "5094808352"}]}))
-    r = auth.post(reverse("start"), {"phone": "509-480-8352", "store": "yakima"}, SERVER_NAME="localhost")
+        {"Guest_id": 710000001, "Name": "Jane Doe", "PhoneNo": "5095550100"}]}))
+    r = auth.post(reverse("start"), {"phone": "5095550100", "store": "yakima"}, SERVER_NAME="localhost")
     assert r.status_code == 302 and r.url == reverse("screen")
-    assert auth.session["acct_id"] == 47531504 and auth.session["acct_phone"] == "5094808352"
+    assert auth.session["acct_id"] == 710000001 and auth.session["acct_phone"] == "5095550100"
 
 
 def test_start_under21_blocks(auth, monkeypatch):
@@ -103,11 +103,11 @@ def test_start_needs_input(auth, monkeypatch):
 def test_profile_post_anchored_to_session(auth, monkeypatch):
     _use_store(monkeypatch)
     s = auth.session
-    s["guests"] = {"47531504": {"name": "Jane Doe", "phone": "5094808352"}}
+    s["guests"] = {"710000001": {"name": "Jane Doe", "phone": "5095550100"}}
     s.save()
-    r = auth.post(reverse("profile"), {"acct": "47531504"}, SERVER_NAME="localhost")
+    r = auth.post(reverse("profile"), {"acct": "710000001"}, SERVER_NAME="localhost")
     assert r.status_code == 200 and r["HX-Trigger"] == "customerChanged"
-    assert auth.session["acct_id"] == "47531504"
+    assert auth.session["acct_id"] == "710000001"
 
 
 def test_profile_rejects_unlisted_acct_idor(auth, monkeypatch):
@@ -175,10 +175,10 @@ def test_lookup_degrades_without_store(auth, monkeypatch):
 def test_lookup_lists_guests(auth, monkeypatch):
     _use_store(monkeypatch)
     monkeypatch.setattr(V, "_client", lambda s: FakeClient(guests={"Data": [
-        {"Guest_id": 23959577, "Name": "DAKOTA WANGLER", "PhoneNo": "5094808352",
+        {"Guest_id": 710000002, "Name": "Test Customer", "PhoneNo": "5095550100",
          "PatientType": "Recreational", "LastTransaction": "2026-05-23T19:27:38"}]}))
-    r = auth.post(reverse("lookup"), {"phone": "5094808352"}, SERVER_NAME="localhost")
-    assert r.status_code == 200 and b"DAKOTA WANGLER" in r.content and b"23959577" in r.content
+    r = auth.post(reverse("lookup"), {"phone": "5095550100"}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"Test Customer" in r.content and b"710000002" in r.content
 
 
 def test_menu_renders_products(auth, monkeypatch):
@@ -190,7 +190,7 @@ def test_menu_renders_products(auth, monkeypatch):
         "image": "", "img": None, "img_static": True, "price_was": 0, "effects": [],
         "strain_type": "", "terpene": "", "bucket": "", "velocity": 0, "margin_pct": 0,
         "price_z": 0, "subcategory": "", "received_date": None,
-        "ProductId": 3498331, "BatchId": 7454015, "SerialNo": "178", "UnitPrice": 25.0,
+        "ProductId": 750000001, "BatchId": 760000001, "SerialNo": "178", "UnitPrice": 25.0,
         "RecUnitPrice": 25.0, "ProductDesc": "1UP Cartridge", "CannbisProduct": "Yes",
     }]
     monkeypatch.setattr(V.catalog, "get_inventory", lambda s: items)
@@ -207,7 +207,7 @@ def test_product_detail_renders(auth, monkeypatch):
     s = auth.session
     s["acct_id"] = 1
     s.save()
-    p = {"product_id": "3498331", "ProductId": 3498331, "name": "1UP Cartridge",
+    p = {"product_id": "750000001", "ProductId": 750000001, "name": "1UP Cartridge",
          "brand": "1UP", "cat_key": "vapes", "cat_label": "Vapes", "strain": "Black Cherry",
          "strain_type": "hybrid", "thc": 80.0, "cbd": 0.0, "total_terpenes": None,
          "terpene": "myrcene", "effects": ["relaxed", "happy"], "flavors": ["cherry"],
@@ -216,7 +216,7 @@ def test_product_detail_renders(auth, monkeypatch):
          "unit_grams": 1, "velocity": 0, "margin_pct": 0, "bucket": ""}
     monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(p))
     monkeypatch.setattr(V.catalog, "get_inventory", lambda s: [dict(p)])
-    r = auth.get(reverse("product", args=["3498331"]), SERVER_NAME="localhost")
+    r = auth.get(reverse("product", args=["750000001"]), SERVER_NAME="localhost")
     body = r.content
     assert r.status_code == 200
     assert b"1UP Cartridge" in body and b"Lab data" in body
@@ -270,7 +270,7 @@ def test_submit_happy_path_audits(auth, monkeypatch):
     monkeypatch.setattr(V, "_client", lambda s: FakeClient())
     s = auth.session
     s["cart"] = [{"ProductId": 1, "ProductDesc": "X", "UnitPrice": 5, "Cnt": 1}]
-    s["acct_id"] = 23812947
+    s["acct_id"] = 710000003
     s.save()
     r = auth.post(reverse("cart_submit"), {}, SERVER_NAME="localhost")
     assert r.status_code == 200 and b"Shipment 999" in r.content

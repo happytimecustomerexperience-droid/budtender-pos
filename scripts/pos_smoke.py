@@ -1,9 +1,9 @@
 """Smoke #2 — live write path on a TEST register. USE A TEST GUEST + cheap item.
 
-    python scripts/pos_smoke.py yakima --acct 23812947 \
-        --product 3498331 --batch 7454015 --serial 17892319679541569 \
-        --price 25 --avail 2530.1 --desc "1UP DOH Cartridge" \
-        [--schedule 147715388 --shipment 229055491]
+    python scripts/pos_smoke.py yakima --acct <ACCT_ID> \
+        --product <PRODUCT_ID> --batch <BATCH_ID> --serial <SERIAL_NO> \
+        --price <PRICE> --avail <ALLOTMENT> --desc "<PRODUCT NAME>" \
+        [--schedule <SCHEDULE_ID> --shipment <SHIPMENT_ID>]
 
 If --schedule/--shipment are omitted, start_visit() mints them (path confirmed live).
 Verify the cart in the Dutchie POS UI afterward, then VOID it. Writes a real order.

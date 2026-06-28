@@ -9,7 +9,7 @@ from dutchie.session import EmployeeSession, Store
 
 STORE = Store(
     name="yakima", base_url="https://bo", pos_base_url="https://pos",
-    org_id=8002, lsp_id=1745, loc_id=3498, register_id=8318,
+    org_id=700002, lsp_id=700045, loc_id=700498, register_id=700318,
     username="u", password="p", api_key="",
 )
 
@@ -28,30 +28,30 @@ def _client(capture, resp=None):
 
 def test_checkin_guest_shape():
     cap = []
-    _client(cap).checkin_guest(47531504)
+    _client(cap).checkin_guest(710000001)
     path, body = cap[0]
     assert path == "/api/v2/guest/checkin_guest"
-    assert body["AcctId"] == 47531504 and body["MJStateIDNo"] == "" and body["Register"] == 0
+    assert body["AcctId"] == 710000001 and body["MJStateIDNo"] == "" and body["Register"] == 0
     assert body["RoomId"] == "" and body["SessionId"] == "SID-123"
-    assert body["LspId"] == "1745" and body["LocId"] == "3498"
+    assert body["LspId"] == "700045" and body["LocId"] == "700498"
     assert "Register" in body and body["Register"] == 0  # checkin uses Register 0
 
 
 def test_guest_details_shape():
     cap = []
-    _client(cap).guest_details(47531504)
+    _client(cap).guest_details(710000001)
     path, body = cap[0]
     assert path == "/api/v2/guest/details"
-    assert body["Guest_id"] == 47531504 and body["SessionId"] == "SID-123"
+    assert body["Guest_id"] == 710000001 and body["SessionId"] == "SID-123"
 
 
 def test_select_guest_shape():
     cap = []
-    _client(cap).select_guest_to_register(47531504, 147717704, 229057824)
+    _client(cap).select_guest_to_register(710000001, 730000001, 720000001)
     path, body = cap[0]
     assert path == "/api/v2/guest/Select_Guest_To_Register"
-    assert body["Guest_id"] == 47531504 and body["RegisterId"] == 8318
-    assert body["ScheduleId"] == 147717704 and body["ShipmentId"] == 229057824
+    assert body["Guest_id"] == 710000001 and body["RegisterId"] == 700318
+    assert body["ScheduleId"] == 730000001 and body["ShipmentId"] == 720000001
     assert "Register" not in body  # select uses RegisterId
 
 
@@ -61,38 +61,38 @@ def test_product_search_returns_list():
     rows = c.product_search()
     path, body = cap[0]
     assert path == "/api/v2/product/product_SearchV2"
-    assert body["Register"] == 8318 and rows == [{"ProductId": 1}]
+    assert body["Register"] == 700318 and rows == [{"ProductId": 1}]
 
 
 def test_price_check_shape():
     cap = []
-    _client(cap).price_check("17892319679541569")
+    _client(cap).price_check("790000000000001")
     path, body = cap[0]
     assert path == "/api/v2/inventory/price-check"
-    assert body["PackageSerialNumber"] == "17892319679541569"
+    assert body["PackageSerialNumber"] == "790000000000001"
 
 
 def test_add_item_shape():
     cap = []
-    item = map_product_row({"ProductId": 3498331, "BatchId": 7454015, "SerialNo": "17892319679541569",
+    item = map_product_row({"ProductId": 750000001, "BatchId": 760000001, "SerialNo": "790000000000001",
                             "ProductDesc": "1UP Cartridge", "UnitPrice": 25, "RecUnitPrice": 25,
                             "CannabisInventory": "Yes"})
-    _client(cap).add_item_to_cart(47531504, 229057824, item, avail_oz=2530.1)
+    _client(cap).add_item_to_cart(710000001, 720000001, item, avail_oz=2530.1)
     path, body = cap[0]
     assert path == "/api/v2/cart/add_item_to_shopping_cart"
-    assert body["AcctId"] == 47531504 and body["ShipmentId"] == 229057824
-    assert body["ProductId"] == 3498331 and body["BatchId"] == 7454015
-    assert body["SerialNo"] == "17892319679541569" and body["AvailOz"] == 2530.1
-    assert body["Cnt"] == 1 and body["QuantityItem"] is True and body["Register"] == 8318
+    assert body["AcctId"] == 710000001 and body["ShipmentId"] == 720000001
+    assert body["ProductId"] == 750000001 and body["BatchId"] == 760000001
+    assert body["SerialNo"] == "790000000000001" and body["AvailOz"] == 2530.1
+    assert body["Cnt"] == 1 and body["QuantityItem"] is True and body["Register"] == 700318
     assert body["LoyaltyAsDiscount"] is True and body["Weight"] == 0
 
 
 def test_update_status_shape():
     cap = []
-    _client(cap).update_transaction_status(229057824, "Ready for pickup")
+    _client(cap).update_transaction_status(720000001, "Ready for pickup")
     path, body = cap[0]
     assert path == "/api/posv3/maintenance/UpdateTransactionStatus"
-    assert body["TransId"] == 229057824 and body["TransactionStatus"] == "Ready for pickup"
+    assert body["TransId"] == 720000001 and body["TransactionStatus"] == "Ready for pickup"
     assert "Register" not in body
 
 
@@ -100,12 +100,12 @@ def test_submit_cart_full_flow():
     cap = []
     resp = {
         "/api/v2/guest/checkin_guest": {"Result": True, "Data": [
-            {"ShipmentId": 229057824, "ScanResult": "147717704"}]},
+            {"ShipmentId": 720000001, "ScanResult": "730000001"}]},
         "/api/v2/guest/details": {"Result": True, "Data": {"Allotment": 2530.1}},
     }
     c = _client(cap, resp)
     item = map_product_row({"ProductId": 1, "BatchId": 2, "SerialNo": "3", "UnitPrice": 5})
-    res = c.submit_cart(47531504, [item])
+    res = c.submit_cart(710000001, [item])
     paths = [p for p, _ in cap]
     assert paths == [
         "/api/v2/guest/checkin_guest",
@@ -114,7 +114,7 @@ def test_submit_cart_full_flow():
         "/api/v2/cart/add_item_to_shopping_cart",
         "/api/posv3/maintenance/UpdateTransactionStatus",
     ]
-    assert res["shipment_id"] == 229057824 and res["schedule_id"] == 147717704
+    assert res["shipment_id"] == 720000001 and res["schedule_id"] == 730000001
     assert res["allotment"] == 2530.1
     # add_item got the allotment as AvailOz
     add_body = dict(cap[3][1])
@@ -123,10 +123,10 @@ def test_submit_cart_full_flow():
 
 def test_guest_search_shape():
     cap = []
-    _client(cap).guest_search("5094808352")
+    _client(cap).guest_search("5095550100")
     path, body = cap[0]
     assert path == "/api/v2/guest/checkin_search_by_string"
-    assert body["SearchString"] == "5094808352"
+    assert body["SearchString"] == "5095550100"
     assert body["SessionId"] == "SID-123" and "Register" not in body
 
 
