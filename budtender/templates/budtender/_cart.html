@@ -1,10 +1,12 @@
+<span id="cart-badge" hx-swap-oob="true">{{ cart|length }}</span>
+{% if add_error %}<p class="err">{{ add_error }}</p>{% endif %}
 {% if cart %}
 {% for it in cart %}
   <div class="line">
     <span class="nm">{{ it.ProductDesc|default:it.ProductId }}<br><span class="muted">×{{ it.Cnt|default:1 }} · ${{ it.UnitPrice|floatformat:0 }}</span></span>
     <form hx-post="{% url 'cart_remove' %}" hx-target="#cart">
       <input type="hidden" name="idx" value="{{ forloop.counter0 }}">
-      <button class="ghost" style="min-height:32px;padding:4px 9px">✕</button>
+      <button class="xbtn">✕</button>
     </form>
   </div>
 {% endfor %}

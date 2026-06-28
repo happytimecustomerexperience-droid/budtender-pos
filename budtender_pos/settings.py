@@ -48,6 +48,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",  # serve static at scale w/o a CDN
+    "core.security.ContentSecurityPolicyMiddleware",  # CSP header (self-hosted assets)
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -96,7 +97,11 @@ if _dash:
 DASHBOARD_TENANT_SCHEMA = os.environ.get("DASHBOARD_TENANT_SCHEMA", "")
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+     "OPTIONS": {"min_length": 10}},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 LANGUAGE_CODE = "en-us"
@@ -124,7 +129,9 @@ else:
 
 # Security — hardened by default; relax only in DEBUG.
 SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_HTTPONLY = True   # the CSRF token is injected via the template, not read from JS
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
 X_FRAME_OPTIONS = "DENY"
 if not DEBUG:
     SECURE_SSL_REDIRECT = True

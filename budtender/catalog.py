@@ -72,6 +72,7 @@ def _normalize(row, enr):
         "CannbisProduct": "Yes" if row.get("CannabisInventory") == "Yes" else "No",
     }
     d["cat_key"] = imagemap.category_key(cat_raw) or "other"
+    d["cat_label"] = CAT_LABELS.get(d["cat_key"], d["cat_key"].title())
     img, is_static = imagemap.product_image(d)
     d["img"], d["img_static"] = img, is_static
     return d
@@ -132,10 +133,24 @@ _SORTS = {
 }
 
 
+def find_item(store_key, product_id=None, serial=None):
+    """Authoritative product row from the cached inventory (trusted price/serial/
+    batch) — used to re-resolve a cart line server-side so the client can't forge
+    price or serial. Returns the normalized dict or None."""
+    pid = str(product_id) if product_id is not None else None
+    for p in get_inventory(store_key):
+        if pid and str(p.get("product_id")) == pid:
+            return p
+        if serial and p.get("SerialNo") == serial:
+            return p
+    return None
+
+
 def query(items, profile, f):
-    """Apply search + filters + sort. `f` is a dict of request filters."""
+    """Apply search + filters + sort. `f` is a dict of request filters.
+    Always restricted to in-stock items (owner rule)."""
     q = (f.get("q") or "").strip().lower()
-    out = items
+    out = [p for p in items if p.get("qty", 0) > 0]   # always in-stock only
     if f.get("cat"):
         out = [p for p in out if p["cat_key"] == f["cat"]]
     if q:
@@ -153,8 +168,6 @@ def query(items, profile, f):
         out = [p for p in out if p["price"] <= f["price_max"]]
     if f.get("thc_min"):
         out = [p for p in out if _f(p["thc"]) >= f["thc_min"]]
-    if f.get("in_stock"):
-        out = [p for p in out if p["qty"] > 0]
     if f.get("doh_only"):
         out = [p for p in out if "doh" in (p["name"] or "").lower()]
 

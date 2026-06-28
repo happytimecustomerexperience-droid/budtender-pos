@@ -8,6 +8,7 @@ a 500. Cart lives in the session. Public-ish endpoints are throttled. Lists pagi
 from __future__ import annotations
 
 import logging
+import os
 
 from django.contrib.auth import login as auth_login
 from django.contrib.auth import logout as auth_logout
@@ -28,7 +29,7 @@ from . import catalog
 logger = logging.getLogger(__name__)
 
 MAX_LIST = 40  # cap any rendered list (pagination ceiling)
-MENU_PAGE = 60  # products rendered per menu view
+MENU_PAGE = 24  # products per menu page (paginated)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -42,6 +43,12 @@ def _stores():
 
 def _active_store(request):
     stores = _stores()
+    # Per-instance lock: set BUDTENDER_LOCK_STORE to pin this deployment to one
+    # store and ignore any client-supplied store (store-isolation hardening).
+    lock = os.environ.get("BUDTENDER_LOCK_STORE", "").strip()
+    if lock and lock in stores:
+        request.session["store"] = lock
+        return stores[lock]
     name = request.POST.get("store") or request.GET.get("store") or request.session.get("store")
     if name and name in stores:
         request.session["store"] = name
@@ -113,6 +120,9 @@ def _start_session(request, acct_id, name, phone):
     request.session["acct_name"] = name
     request.session["acct_phone"] = phone
     request.session["cart"] = []
+    allowed = request.session.get("guests") or {}
+    allowed[str(acct_id)] = {"name": name or "", "phone": phone or ""}
+    request.session["guests"] = allowed
     return redirect("screen")
 
 
@@ -157,7 +167,8 @@ def start(request):
         try:
             gid = _client(store).create_guest(first_name="Guest", last_name="", dob="", phone="")
         except Exception as exc:
-            ctx["error"] = f"guest start failed: {exc}"
+            logger.warning("guest start failed: %s", exc)
+            ctx["error"] = "Could not start a guest session — try again."
             return render(request, "budtender/begin.html", ctx)
         if not gid:
             ctx["error"] = "could not start a guest session"
@@ -192,7 +203,8 @@ def start(request):
     try:
         acct_id, name, how = _resolve_or_create(_client(store), scan, phone)
     except Exception as exc:
-        ctx["error"] = f"lookup failed: {exc}"
+        logger.warning("start lookup failed: %s", exc)
+        ctx["error"] = "Lookup failed — try again."
         return render(request, "budtender/begin.html", ctx)
     if not acct_id:
         # No match + nothing to create from → offer Create-profile (scan) or Guest.
@@ -247,11 +259,16 @@ def scan(request):
             if guests:
                 acct_id = guests[0]["acct_id"]
         except Exception as exc:
-            ctx["warn"] = f"guest lookup unavailable: {exc}"
+            logger.warning("scan guest lookup unavailable: %s", exc)
+            ctx["warn"] = "Customer lookup unavailable."
     upsert_customer(scan_result, dutchie_acct_id=acct_id)
     if acct_id:
         request.session["acct_id"] = acct_id
         request.session["acct_name"] = scan_result.get("accts_name")
+        allowed = request.session.get("guests") or {}
+        allowed[str(acct_id)] = {"name": scan_result.get("accts_name", ""),
+                                 "phone": scan_result.get("phone", "")}
+        request.session["guests"] = allowed
     request.session["acct_phone"] = scan_result.get("phone") or ""
     ctx.update({"scan": scan_result, "acct_id": acct_id,
                 "history": load_customer_history(acct_id=acct_id, phone=scan_result.get("phone"),
@@ -275,24 +292,40 @@ def lookup(request):
         ctx["guests"] = []
         return render(request, "budtender/_guests.html", ctx)
     try:
-        ctx["guests"] = _parse_guests(_client(store).guest_search(q))
+        guests = _parse_guests(_client(store).guest_search(q))
     except Exception as exc:
-        ctx["error"] = f"lookup failed: {exc}"
+        logger.warning("lookup failed: %s", exc)
+        ctx["error"] = "Lookup failed — try again."
+        return render(request, "budtender/_guests.html", ctx)
+    ctx["guests"] = guests
+    # Record which accounts THIS budtender is allowed to open (anchors `profile`
+    # so it can't be used to enumerate arbitrary customers' PII).
+    allowed = request.session.get("guests") or {}
+    for g in guests:
+        if g.get("acct_id") is not None:
+            allowed[str(g["acct_id"])] = {"name": g.get("name", ""), "phone": g.get("phone", "")}
+    request.session["guests"] = allowed
     return render(request, "budtender/_guests.html", ctx)
 
 
 @login_required
-@require_http_methods(["GET"])
+@rate_limit("profile", limit=40, window=60)
+@require_http_methods(["POST"])
 def profile(request):
-    acct = request.GET.get("acct")
-    name = request.GET.get("name")
-    phone = request.GET.get("phone") or ""
+    """POST-only (was a state-mutating GET — CSRF retarget). The customer's phone/
+    name are taken from the SESSION allow-map populated by a prior lookup/scan, never
+    from the request — so this can't be used to pull arbitrary customers' PII (IDOR)."""
+    acct = request.POST.get("acct")
+    allowed = (request.session.get("guests") or {}).get(str(acct))
+    if not allowed:
+        return render(request, "budtender/_profile.html",
+                      {"error": "Select a customer from a lookup first."})
+    name, phone = allowed.get("name", ""), allowed.get("phone", "")
     request.session["acct_id"] = acct
     request.session["acct_name"] = name
     request.session["acct_phone"] = phone
-    if acct:  # persist the acct<->name mapping locally for future fast lookup
-        upsert_customer({"accts_name": name, "phone": phone},
-                        dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
+    upsert_customer({"accts_name": name, "phone": phone},
+                    dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
     resp = render(request, "budtender/_profile.html", {
         "acct_id": acct, "scan": {"accts_name": name, "phone": phone},
         "history": load_customer_history(acct_id=acct, phone=phone, name=name),
@@ -313,8 +346,8 @@ def _filters(request):
         "strain_type": g.get("strain_type", ""), "effect": g.get("effect", ""),
         "sort": g.get("sort", "foryou"),
         "price_min": _int("price_min"), "price_max": _int("price_max"),
-        "thc_min": _int("thc_min"),
-        "in_stock": g.get("in_stock") == "1", "doh_only": g.get("doh_only") == "1",
+        "thc_min": _int("thc_min"), "doh_only": g.get("doh_only") == "1",
+        "page": max(1, _int("page") or 1),
     }
 
 
@@ -333,11 +366,17 @@ def menu(request):
     try:
         items = catalog.get_inventory(store.name)
     except Exception as exc:
-        ctx["error"] = f"menu load failed: {exc}"
+        logger.warning("menu load failed: %s", exc)
+        ctx["error"] = "Menu unavailable — refresh in a moment."
         return render(request, "budtender/_menu.html", ctx)
     results = catalog.query(items, profile, f)
+    total = len(results)
+    pages = max(1, (total + MENU_PAGE - 1) // MENU_PAGE)
+    page = min(f["page"], pages)
+    start_i = (page - 1) * MENU_PAGE
     ctx.update(
-        products=results[:MENU_PAGE], total=len(results),
+        products=results[start_i:start_i + MENU_PAGE], total=total,
+        page=page, pages=pages, has_prev=page > 1, has_next=page < pages,
         cats=catalog.categories(items), facets=catalog.facets(items), f=f,
         has_customer=bool(profile), acct_name=request.session.get("acct_name"),
         suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
@@ -345,21 +384,29 @@ def menu(request):
     return render(request, "budtender/_menu.html", ctx)
 
 
+_TRUSTED_ITEM_KEYS = ("ProductId", "BatchId", "SerialNo", "UnitPrice",
+                      "RecUnitPrice", "ProductDesc", "CannbisProduct")
+
+
 @login_required
 @require_http_methods(["POST"])
 def cart_add(request):
+    """SECURITY: the price/serial/batch are NEVER taken from the client. We re-resolve
+    the line from the server's cached inventory by ProductId; only quantity is trusted
+    from the request. (Audit finding: client-trusted cart line -> live register write.)"""
+    store = _active_store(request)
     cart = request.session.get("cart", [])
-    item = {k: request.POST.get(k) for k in (
-        "ProductId", "BatchId", "SerialNo", "RecUnitPrice", "UnitPrice",
-        "ProductDesc", "CannbisProduct")}
-    for k in ("ProductId", "BatchId"):
-        item[k] = int(item[k]) if item.get(k) else None
-    for k in ("RecUnitPrice", "UnitPrice"):
-        item[k] = float(item[k]) if item.get(k) else 0
     try:
-        item["Cnt"] = max(1, int(request.POST.get("Cnt") or 1))
-    except ValueError:
-        item["Cnt"] = 1
+        cnt = max(1, min(99, int(request.POST.get("Cnt") or 1)))
+    except (TypeError, ValueError):
+        cnt = 1
+    p = catalog.find_item(store.name, product_id=request.POST.get("ProductId")) if store else None
+    if not p:
+        ctx = _cart_ctx(cart)
+        ctx["add_error"] = "Item unavailable — refresh the menu."
+        return render(request, "budtender/_cart.html", ctx)
+    item = {k: p.get(k) for k in _TRUSTED_ITEM_KEYS}
+    item["Cnt"] = cnt
     cart.append(item)
     request.session["cart"] = cart
     return render(request, "budtender/_cart.html", _cart_ctx(cart))
@@ -409,5 +456,6 @@ def cart_submit(request):
         record_write(store.name, "submit", ok=False,
                      acct_id=int(acct_id) if str(acct_id).isdigit() else None,
                      summary=str(exc)[:200], username=getattr(request.user, "username", ""))
-        ctx["error"] = f"submit failed: {exc}"
+        logger.warning("cart submit failed: %s", exc)
+        ctx["error"] = "Submit failed — please try again."
     return render(request, "budtender/_submit_result.html", ctx)

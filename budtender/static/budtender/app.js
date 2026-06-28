@@ -1,0 +1,22 @@
+// Budtender POS client glue (external so CSP can be script-src 'self').
+(function () {
+  // Keep the chosen store on every htmx request (the select lives in the header).
+  document.body.addEventListener("htmx:configRequest", function (e) {
+    var sel = document.getElementById("store");
+    if (sel) e.detail.parameters["store"] = sel.value;
+  });
+
+  // Cart drawer open/close.
+  function openCart() { document.body.classList.add("cart-open"); }
+  function closeCart() { document.body.classList.remove("cart-open"); }
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-cart-open]");
+    if (t) { openCart(); return; }
+    if (e.target.closest("[data-cart-close]") || e.target.id === "cart-backdrop") closeCart();
+  });
+  // Pop the cart open right after an item is added.
+  document.body.addEventListener("htmx:afterRequest", function (e) {
+    var p = (e.detail && e.detail.requestConfig && e.detail.requestConfig.path) || "";
+    if (p.indexOf("/cart/add/") !== -1 && e.detail.successful) openCart();
+  });
+})();

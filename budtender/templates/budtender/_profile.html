@@ -1,41 +1,22 @@
-{% if error %}<p class="err">{{ error }}</p>{% endif %}
-{% if warn %}<p class="warn">{{ warn }}</p>{% endif %}
+{% if error %}<span class="err">{{ error }}</span>{% endif %}
+{% if warn %}<span class="warn">{{ warn }}</span>{% endif %}
 {% if scan or acct_id %}
-  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-    <strong style="font-size:16px">{{ scan.accts_name|default:"(name unknown)" }}</strong>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <strong>{{ scan.accts_name|default:"Customer" }}</strong>
     {% if scan.over_21 is not None %}
-      <span class="{% if scan.over_21 %}badge-ok{% else %}badge-bad{% endif %}" style="font-size:13px">
+      <span class="{% if scan.over_21 %}badge-ok{% else %}badge-bad{% endif %}">
         {% if scan.over_21 %}21+ ✓{% else %}UNDER 21 ✕{% endif %}{% if scan.age %} · {{ scan.age }}{% endif %}
       </span>
     {% endif %}
-  </div>
-  <div class="muted" style="margin:4px 0 12px">
-    Acct <strong>{{ acct_id|default:"—" }}</strong>
-    {% if scan.phone %} · {{ scan.phone }}{% endif %}
-  </div>
-
-  {% if history %}
-    <div class="kpi">
-      <div><b>{{ history.orders }}</b><span>orders</span></div>
-      <div><b>{{ history.last_purchase|default:"—" }}</b><span>last visit</span></div>
-      <div><b>{{ history.price_tier|default:"—"|title }}</b><span>tier</span></div>
-      <div><b>{{ history.novelty|default:"—" }}</b><span>novelty</span></div>
-    </div>
-    {% if history.top_categories or history.top_brands %}
-      <p style="margin:12px 0 4px;font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:.06em">Likes</p>
-      {% for c in history.top_categories %}<span class="chip amber">{{ c|title }}</span>{% endfor %}
+    {% if history %}
+      {% if history.orders %}<span class="chip">{{ history.orders }} orders</span>{% endif %}
+      {% if history.price_tier %}<span class="chip amber">{{ history.price_tier|title }}</span>{% endif %}
+      {% for c in history.top_categories %}<span class="chip">{{ c|title }}</span>{% endfor %}
       {% for b in history.top_brands %}<span class="chip">{{ b }}</span>{% endfor %}
+    {% elif acct_id %}
+      <span class="muted">No taste profile yet</span>
     {% endif %}
-    {% if history.recent %}
-      <p style="margin:12px 0 4px;font-size:12px;color:var(--sage);text-transform:uppercase;letter-spacing:.06em">Recent buys</p>
-      <div class="scroll"><table><tbody>
-        {% for p in history.recent %}<tr><td>{{ p.product }}</td><td class="muted">{{ p.brand }}</td><td>×{{ p.times }}</td></tr>{% endfor %}
-      </tbody></table></div>
-    {% endif %}
-    <p class="hint" style="margin-top:8px">Taste profile · Happy Time</p>
-  {% else %}
-    <p class="muted">No taste profile yet for this customer.</p>
-  {% endif %}
+  </div>
 {% else %}
-  <p class="muted">No customer selected.</p>
+  <span class="muted">No customer selected.</span>
 {% endif %}

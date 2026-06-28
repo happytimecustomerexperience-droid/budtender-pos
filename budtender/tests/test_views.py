@@ -100,13 +100,22 @@ def test_start_needs_input(auth, monkeypatch):
     assert r.status_code == 200 and b"Scan an ID or enter a phone" in r.content
 
 
-def test_profile_get_sets_session(auth, monkeypatch):
+def test_profile_post_anchored_to_session(auth, monkeypatch):
     _use_store(monkeypatch)
-    r = auth.get(reverse("profile") + "?acct=47531504&name=Jane%20Doe&phone=5094808352",
-                 SERVER_NAME="localhost")
-    assert r.status_code == 200
-    assert r["HX-Trigger"] == "customerChanged"
+    s = auth.session
+    s["guests"] = {"47531504": {"name": "Jane Doe", "phone": "5094808352"}}
+    s.save()
+    r = auth.post(reverse("profile"), {"acct": "47531504"}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and r["HX-Trigger"] == "customerChanged"
     assert auth.session["acct_id"] == "47531504"
+
+
+def test_profile_rejects_unlisted_acct_idor(auth, monkeypatch):
+    _use_store(monkeypatch)
+    # No prior lookup -> acct not in the session allow-map -> refused (IDOR guard).
+    r = auth.post(reverse("profile"), {"acct": "99999999"}, SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"Select a customer" in r.content
+    assert "acct_id" not in auth.session
 
 
 def test_end_session_clears_and_redirects(auth, monkeypatch):
@@ -176,8 +185,8 @@ def test_menu_renders_products(auth, monkeypatch):
     _use_store(monkeypatch)
     items = [{
         "product_id": "1", "name": "1UP Cartridge", "brand": "1UP", "category": "Vaporizer",
-        "raw_category": "Vaporizer", "cat_key": "vapes", "strain": "", "thc": 80,
-        "price": 25.0, "qty": 10,
+        "raw_category": "Vaporizer", "cat_key": "vapes", "cat_label": "Vapes",
+        "strain": "", "thc": 80, "price": 25.0, "qty": 10,
         "image": "", "img": None, "img_static": True, "price_was": 0, "effects": [],
         "strain_type": "", "terpene": "", "bucket": "", "velocity": 0, "margin_pct": 0,
         "price_z": 0, "subcategory": "", "received_date": None,
@@ -189,16 +198,36 @@ def test_menu_renders_products(auth, monkeypatch):
     assert r.status_code == 200 and b"1UP Cartridge" in r.content
 
 
-def test_cart_add_remove(auth, monkeypatch):
+_SERVER_ROW = {"ProductId": 1, "BatchId": 2, "SerialNo": "S1", "UnitPrice": 25.0,
+               "RecUnitPrice": 25.0, "ProductDesc": "Real Product", "CannbisProduct": "Yes"}
+
+
+def test_cart_add_uses_server_price_not_client(auth, monkeypatch):
     _use_store(monkeypatch)
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
+    # Attacker posts UnitPrice=0.01 + a fake serial — must be IGNORED.
     r = auth.post(reverse("cart_add"),
-                  {"ProductId": "1", "ProductDesc": "X", "UnitPrice": "5", "Cnt": "3"},
+                  {"ProductId": "1", "UnitPrice": "0.01", "SerialNo": "HACK", "Cnt": "3"},
                   SERVER_NAME="localhost")
-    assert b"X" in r.content
-    sess = auth.session
-    assert sess["cart"][0]["Cnt"] == 3
+    assert b"Real Product" in r.content
+    item = auth.session["cart"][0]
+    assert item["UnitPrice"] == 25.0 and item["SerialNo"] == "S1" and item["Cnt"] == 3  # server-trusted
     r2 = auth.post(reverse("cart_remove"), {"idx": "0"}, SERVER_NAME="localhost")
     assert b"Cart empty" in r2.content
+
+
+def test_cart_add_rejects_unknown_product(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: None)
+    r = auth.post(reverse("cart_add"), {"ProductId": "999", "Cnt": "1"}, SERVER_NAME="localhost")
+    assert b"unavailable" in r.content and auth.session.get("cart", []) == []
+
+
+def test_cart_add_clamps_qty(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
+    auth.post(reverse("cart_add"), {"ProductId": "1", "Cnt": "9999"}, SERVER_NAME="localhost")
+    assert auth.session["cart"][0]["Cnt"] == 99  # clamped
 
 
 def test_submit_requires_customer_and_items(auth, monkeypatch):

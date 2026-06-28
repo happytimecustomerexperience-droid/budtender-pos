@@ -15,8 +15,11 @@ from django.http import HttpResponse
 
 
 def _client_ip(request) -> str:
+    # Use the LAST X-Forwarded-For hop (appended by our own Traefik) — the first
+    # hops are client-supplied and spoofable, which would let an attacker dodge
+    # the throttle by rotating fake XFF values.
     xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    return (xff.split(",")[0].strip() if xff else request.META.get("REMOTE_ADDR", "")) or "anon"
+    return (xff.split(",")[-1].strip() if xff else request.META.get("REMOTE_ADDR", "")) or "anon"
 
 
 def rate_limit(scope: str, limit: int = 30, window: int = 60):

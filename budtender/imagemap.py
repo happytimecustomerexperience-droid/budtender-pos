@@ -64,16 +64,7 @@ def category_tile(category):
 
 
 def product_image(p):
-    """Best image path for a normalized product dict: live Dutchie URL (absolute,
-    used directly in <img src>), else brand logo, else category tile, else None.
-    Returns (url_or_static_path, is_static)."""
-    live = (p.get("image") or "").strip()
-    if live.startswith("http"):
-        return live, False
-    logo = brand_logo(p.get("brand"))
-    if logo:
-        return logo, True
-    tile = category_tile(p.get("category"))
-    if tile:
-        return tile, True
-    return None, True
+    """Preview = the BRAND LOGO when we have one, else None (the card renders the
+    brand NAME as a clean text tile). Owner decision: a consistent branded catalog
+    look, not mixed product photos. Returns (static_path_or_None, is_static=True)."""
+    return brand_logo(p.get("brand")), True

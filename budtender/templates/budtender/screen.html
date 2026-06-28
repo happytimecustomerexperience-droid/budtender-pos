@@ -9,7 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'budtender/app.css' %}">
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="{% static 'budtender/htmx.min.js' %}" defer></script>
+  <script src="{% static 'budtender/app.js' %}" defer></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 <header class="top">
@@ -18,58 +19,42 @@
     {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
   </select>
   <span class="spacer"></span>
-  {% if acct_id %}<span class="cust-chip">👤 <b>{{ acct_name|default:"Customer" }}</b></span>{% endif %}
-  <a class="signout" href="{% url 'end' %}">＋ New customer</a>
-  <a class="signout" href="{% url 'logout' %}">Sign out</a>
+  <span class="cust-chip">👤 <b>{{ acct_name|default:"Guest" }}</b></span>
+  <a class="link" href="{% url 'end' %}">＋ New customer</a>
+  <a class="link" href="{% url 'logout' %}">Sign out</a>
+  <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
 </header>
 
-<main class="app">
-  <!-- LEFT: customer -->
-  <div class="col side">
-    <section class="card">
-      <h2>Customer</h2>
-      <form hx-post="{% url 'scan' %}" hx-target="#profile" hx-encoding="multipart/form-data" style="display:flex;gap:8px;flex-wrap:wrap">
-        <input type="file" name="images" accept="image/*" capture="environment" multiple required style="flex:1;min-width:140px">
-        <button type="submit">Scan ID</button>
-      </form>
-      <form class="filters" hx-post="{% url 'lookup' %}" hx-target="#guests" style="margin-top:8px">
-        <input class="search" name="phone" placeholder="search by phone" inputmode="tel" autocomplete="off">
-        <button class="ghost" type="submit">Find</button>
-      </form>
-      <div id="guests" style="margin-top:8px"></div>
-    </section>
-    <section class="card">
-      <h2>Profile</h2>
-      <div id="profile">{% if not acct_id %}<p class="muted">No customer selected.</p>{% endif %}</div>
-    </section>
-  </div>
+<div class="customerbar">
+  <form hx-post="{% url 'scan' %}" hx-target="#profile" hx-encoding="multipart/form-data">
+    <input type="file" name="images" accept="image/*" capture="environment" multiple aria-label="Scan ID">
+    <button type="submit" class="ghost">Scan ID</button>
+  </form>
+  <form hx-post="{% url 'lookup' %}" hx-target="#guests" class="grow">
+    <input class="grow" name="phone" placeholder="Search customer by phone…" inputmode="tel" autocomplete="off">
+    <button type="submit">Find</button>
+  </form>
+  <div id="guests"></div>
+  <div id="profile">{% if not acct_id %}<span class="muted">No customer selected — scan or search, or continue as guest.</span>{% endif %}</div>
+</div>
 
-  <!-- CENTER: menu -->
-  <div class="col">
-    <div id="menu" hx-get="{% url 'menu' %}" hx-trigger="load, customerChanged from:body">
-      <div class="card"><p class="muted">Loading menu…</p></div>
-    </div>
-  </div>
-
-  <!-- RIGHT: cart -->
-  <div class="col side">
-    <section class="card cart">
-      <h2>Cart</h2>
-      <div id="cart">{% include "budtender/_cart.html" %}</div>
-      <form hx-post="{% url 'cart_submit' %}" hx-target="#submit-result">
-        <button type="submit" class="submit">Submit → Ready for pickup</button>
-      </form>
-      <div id="submit-result" style="margin-top:8px"></div>
-    </section>
+<main>
+  <div id="menu" hx-get="{% url 'menu' %}" hx-trigger="load, customerChanged from:body">
+    <p class="muted">Loading menu…</p>
   </div>
 </main>
 
-<script>
-  // keep the chosen store on every htmx request (the select lives in the header)
-  document.body.addEventListener('htmx:configRequest', e => {
-    const sel = document.getElementById('store');
-    if (sel) e.detail.parameters['store'] = sel.value;
-  });
-</script>
+<!-- cart drawer -->
+<div id="cart-backdrop" data-cart-close></div>
+<aside id="cart-drawer" aria-label="Cart">
+  <div class="hd"><h2>Cart</h2><button type="button" class="ghost" data-cart-close>Close</button></div>
+  <div class="bd cart"><div id="cart">{% include "budtender/_cart.html" %}</div></div>
+  <div class="ft">
+    <form hx-post="{% url 'cart_submit' %}" hx-target="#submit-result">
+      <button type="submit" class="submit">Submit → Ready for pickup</button>
+    </form>
+    <div id="submit-result" style="margin-top:8px"></div>
+  </div>
+</aside>
 </body>
 </html>
