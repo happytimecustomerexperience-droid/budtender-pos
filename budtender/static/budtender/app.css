@@ -80,8 +80,10 @@ main{padding:16px 18px 40px;max-width:1500px;margin:0 auto}
 .count{color:var(--sage);font-size:13px;margin:6px 0 12px}
 
 /* product grid — fits every screen, no overflow */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
-@media(min-width:520px){.grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}}
+/* Bigger cards: 5 across on desktop, 3 on tablets/smaller, 2 on phones. */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:1100px){.grid{grid-template-columns:repeat(5,1fr)}}
 .pcard{background:var(--ink);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
   display:flex;flex-direction:column;box-shadow:var(--card);transition:transform .12s,box-shadow .12s}
 .pcard:hover{transform:translateY(-3px);box-shadow:var(--elev)}

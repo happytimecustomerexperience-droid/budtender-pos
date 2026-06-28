@@ -19,10 +19,10 @@
     {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
   </select>
   <span class="spacer"></span>
+  <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
   <span class="cust-chip">👤 <b>{{ acct_name|default:"Guest" }}</b></span>
   <a class="link" href="{% url 'end' %}">＋ New customer</a>
   <a class="link" href="{% url 'logout' %}">Sign out</a>
-  <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
 </header>
 
 <div class="customerbar">
