@@ -227,6 +227,7 @@ def screen(request):
         "cart": request.session.get("cart", []),
         "acct_id": request.session.get("acct_id"),
         "acct_name": request.session.get("acct_name"),
+        "initial_cat": request.GET.get("cat", ""),
     })
 
 

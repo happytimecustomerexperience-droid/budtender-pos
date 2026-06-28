@@ -14,14 +14,14 @@
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 <header class="top">
-  <span class="logo">HAPPY&nbsp;TIME</span>
+  <a class="logo" href="{% url 'screen' %}">HAPPY&nbsp;TIME</a>
   <select name="store" id="store" hx-get="{% url 'menu' %}" hx-target="#menu" hx-trigger="change">
     {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
   </select>
   <span class="spacer"></span>
   <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
   <span class="cust-chip">👤 <b>{{ acct_name|default:"Guest" }}</b></span>
-  <a class="link" href="{% url 'end' %}">＋ New customer</a>
+  <a class="restartbtn" href="{% url 'end' %}" title="Start a new session">↺ Restart</a>
   <a class="link" href="{% url 'logout' %}">Sign out</a>
 </header>
 
@@ -39,7 +39,7 @@
 </div>
 
 <main>
-  <div id="menu" hx-get="{% url 'menu' %}" hx-trigger="load, customerChanged from:body">
+  <div id="menu" hx-get="{% url 'menu' %}{% if initial_cat %}?cat={{ initial_cat }}{% endif %}" hx-trigger="load, customerChanged from:body">
     <p class="muted">Loading menu…</p>
   </div>
 </main>

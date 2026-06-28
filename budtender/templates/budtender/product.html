@@ -14,12 +14,22 @@
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 <header class="top">
-  <span class="logo">HAPPY&nbsp;TIME</span>
-  <a class="link" href="{% url 'screen' %}">← Menu</a>
+  <a class="logo" href="{% url 'screen' %}">HAPPY&nbsp;TIME</a>
   <span class="spacer"></span>
   <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
   <span class="cust-chip">👤 <b>{{ acct_name|default:"Guest" }}</b></span>
+  <a class="restartbtn" href="{% url 'end' %}" title="Start a new session">↺ Restart</a>
 </header>
+
+{% if not missing %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="{% url 'screen' %}">Menu</a>
+  {% if p.cat_label %}<span class="sep">›</span>
+  <a href="{% url 'screen' %}?cat={{ p.cat_key }}">{{ p.cat_label }}</a>{% endif %}
+  <span class="sep">›</span>
+  <span class="here">{{ p.name }}</span>
+</nav>
+{% endif %}
 
 <main>
 {% if missing %}
