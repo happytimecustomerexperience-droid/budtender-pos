@@ -17,7 +17,7 @@
     {% for c in cats %}
     <button type="button" class="tab {% if f.cat == c.key %}active{% endif %}"
             hx-get="{% url 'menu' %}?cat={{ c.key }}&sort={{ f.sort }}" hx-target="#menu">
-      {{ c.label }}<span class="n">{{ c.count }}</span>
+      <span class="cdot c-{{ c.key }}"></span>{{ c.label }}<span class="n">{{ c.count }}</span>
     </button>
     {% endfor %}
   </div>

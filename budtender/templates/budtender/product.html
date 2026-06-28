@@ -29,7 +29,7 @@
     <!-- HERO -->
     <div class="dhero">
       <div class="dimg">
-        {% if p.cat_label %}<span class="catpill">{{ p.cat_label }}</span>{% endif %}
+        {% if p.cat_label %}<span class="catpill c-{{ p.cat_key }}">{{ p.cat_label }}</span>{% endif %}
         {% if p.fresh %}<span class="flame">FRESH</span>{% endif %}
         {% if p.img %}<img src="{% static p.img %}" alt="{{ p.brand }}">
         {% else %}<span class="brandname">{{ p.brand|default:p.name }}</span>{% endif %}
