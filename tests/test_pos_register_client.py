@@ -85,6 +85,23 @@ def test_add_item_shape():
     assert body["SerialNo"] == "790000000000001" and body["AvailOz"] == 2530.1
     assert body["Cnt"] == 1 and body["QuantityItem"] is True and body["Register"] == 700318
     assert body["LoyaltyAsDiscount"] is True and body["Weight"] == 0
+    # Discounts ON: Dutchie applies every auto-discount/promo + auto-price server-side.
+    assert body["RunAutoDiscount"] is True and body["RunAutoPrice"] is True
+
+
+def test_parse_price_check_extracts_discount():
+    from dutchie.pos_register_client import PosRegisterClient as PRC
+    out = PRC.parse_price_check(
+        {"Result": True, "Data": {"UnitPrice": 18.0, "RecUnitPrice": 25.0,
+                                  "DiscountAmount": 7.0, "TotalAvailable": 9}})
+    assert out["price"] == 18.0 and out["rec_price"] == 25.0
+    assert out["discount"] == 7.0 and out["available"] == 9 and out["ok"] is True
+    # discount inferred from rec-vs-price when not explicit
+    inferred = PRC.parse_price_check({"Data": [{"UnitPrice": 20, "RecUnitPrice": 30}]})
+    assert inferred["discount"] == 10.0
+    # junk degrades to all-None (caller falls back to cached price), never raises
+    empty = PRC.parse_price_check({})
+    assert empty["price"] is None and empty["available"] is None
 
 
 def test_update_status_shape():

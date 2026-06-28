@@ -212,6 +212,8 @@ main{padding:16px 18px 40px;max-width:1500px;margin:0 auto}
 #cart-drawer .ft{padding:14px 18px;border-top:1px solid var(--line)}
 .cart .line{display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .cart .line .nm{flex:1;line-height:1.25}
+.cart .line .was{color:var(--sage);text-decoration:line-through;margin-left:4px}
+.cart .line .save{color:var(--good);font-weight:700;margin-left:4px}
 .cart .total{display:flex;justify-content:space-between;font-size:18px;font-weight:800;margin-top:12px}
 .submit{width:100%;min-height:52px;font-size:16px}
 .xbtn{background:none;color:var(--sage);min-height:32px;padding:4px 9px;font-size:16px}.xbtn:hover{color:var(--bad);background:none}

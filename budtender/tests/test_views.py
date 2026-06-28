@@ -326,8 +326,22 @@ def test_product_detail_requires_session(auth, monkeypatch):
     assert r.status_code == 302 and r.url == reverse("begin")
 
 
+class _PriceClient:
+    """Fake PosRegisterClient for cart_add — only price_check is exercised."""
+
+    def __init__(self, resp=None, boom=False):
+        self.resp = resp or {}
+        self.boom = boom
+
+    def price_check(self, serial):
+        if self.boom:
+            raise RuntimeError("price-check down")
+        return self.resp
+
+
 def test_cart_add_uses_server_price_not_client(auth, monkeypatch):
     _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda store: _PriceClient({}))  # no live override
     monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
     # Attacker posts UnitPrice=0.01 + a fake serial — must be IGNORED.
     r = auth.post(reverse("cart_add"),
@@ -349,9 +363,41 @@ def test_cart_add_rejects_unknown_product(auth, monkeypatch):
 
 def test_cart_add_clamps_qty(auth, monkeypatch):
     _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda store: _PriceClient({}))
     monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
     auth.post(reverse("cart_add"), {"ProductId": "1", "Cnt": "9999"}, SERVER_NAME="localhost")
     assert auth.session["cart"][0]["Cnt"] == 99  # clamped
+
+
+def test_cart_add_applies_live_discount(auth, monkeypatch):
+    _use_store(monkeypatch)
+    # Live price-check returns a discounted price -> cart line uses it, shows the saving.
+    monkeypatch.setattr(V, "_client", lambda store: _PriceClient(
+        {"Result": True, "Data": {"UnitPrice": 18.0, "RecUnitPrice": 25.0,
+                                  "DiscountAmount": 7.0, "TotalAvailable": 9}}))
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
+    r = auth.post(reverse("cart_add"), {"ProductId": "1", "Cnt": "1"}, SERVER_NAME="localhost")
+    item = auth.session["cart"][0]
+    assert item["UnitPrice"] == 18.0 and item["RecUnitPrice"] == 25.0 and item["Discount"] == 7.0
+    assert b"$18" in r.content and b"$25" in r.content  # discounted price + struck original
+
+
+def test_cart_add_blocks_out_of_stock(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda store: _PriceClient(
+        {"Result": True, "Data": {"UnitPrice": 25.0, "TotalAvailable": 0}}))
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
+    r = auth.post(reverse("cart_add"), {"ProductId": "1", "Cnt": "1"}, SERVER_NAME="localhost")
+    assert b"out of stock" in r.content and auth.session.get("cart", []) == []
+
+
+def test_cart_add_degrades_when_pricecheck_down(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda store: _PriceClient(boom=True))
+    monkeypatch.setattr(V.catalog, "find_item", lambda store, product_id=None, serial=None: dict(_SERVER_ROW))
+    auth.post(reverse("cart_add"), {"ProductId": "1", "Cnt": "1"}, SERVER_NAME="localhost")
+    item = auth.session["cart"][0]
+    assert item["UnitPrice"] == 25.0 and item["Discount"] == 0.0  # fell back to cached price
 
 
 def test_submit_requires_customer_and_items(auth, monkeypatch):

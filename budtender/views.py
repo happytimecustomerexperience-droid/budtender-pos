@@ -563,6 +563,28 @@ def cart_add(request):
         ctx["add_error"] = "Item unavailable — refresh the menu."
         return render(request, "budtender/_cart.html", ctx)
     item = {k: p.get(k) for k in _TRUSTED_ITEM_KEYS}
+    item["Discount"] = 0.0
+    # Live price-check at add: the browse cache can be ~8 min stale, so confirm the
+    # current price + auto-discount + availability straight from Dutchie for THIS serial.
+    # Best-effort — any failure falls back to the cached price so a hiccup never blocks a
+    # sale. (The authoritative discounts still apply at submit via RunAutoDiscount=True.)
+    serial = p.get("SerialNo")
+    if store and serial:
+        try:
+            live = PosRegisterClient.parse_price_check(_client(store).price_check(serial))
+            logger.info("price_check serial=%s -> %s", serial, live)
+            if live["available"] is not None and live["available"] <= 0:
+                ctx = _cart_ctx(cart)
+                ctx["add_error"] = f"{item.get('ProductDesc') or 'Item'} is out of stock."
+                return render(request, "budtender/_cart.html", ctx)
+            if live["price"]:
+                item["UnitPrice"] = live["price"]
+            if live["rec_price"]:
+                item["RecUnitPrice"] = live["rec_price"]
+            if live["discount"]:
+                item["Discount"] = live["discount"]
+        except Exception as exc:
+            logger.warning("price_check failed for %s (using cached price): %s", serial, exc)
     item["Cnt"] = cnt
     cart.append(item)
     request.session["cart"] = cart

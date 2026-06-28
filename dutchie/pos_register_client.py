@@ -104,9 +104,49 @@ class PosRegisterClient(PosClient):
         body = {"PackageSerialNumber": str(serial_no), **self.session_block(with_register=False)}
         return self.post("/api/v2/inventory/price-check", body)
 
+    @staticmethod
+    def parse_price_check(resp: dict) -> dict:
+        """Normalize /inventory/price-check -> {price, rec_price, discount, available, ok}.
+        Field names are probed defensively (the exact live shape is logged on first run);
+        any miss stays None so the caller falls back to the cached price (never blocks a
+        sale on a parse miss)."""
+        d = (resp or {}).get("Data") if isinstance(resp, dict) else None
+        if isinstance(d, list):
+            d = d[0] if d else {}
+        if not isinstance(d, dict):
+            d = resp if isinstance(resp, dict) else {}
+
+        def pick(keys):
+            for k in keys:
+                v = d.get(k)
+                if v is None:
+                    continue
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        price = pick(["DiscountedUnitPrice", "DiscountedPrice", "UnitPriceAfterDiscount",
+                      "FinalUnitPrice", "FinalPrice", "NetUnitPrice", "UnitPrice", "Price"])
+        rec = pick(["RecUnitPrice", "OriginalUnitPrice", "OriginalPrice", "RegularPrice",
+                    "ListPrice", "UnitPrice", "Price"])
+        disc = pick(["DiscountAmount", "TotalDiscount", "Discount", "DiscountTotal"])
+        avail = pick(["TotalAvailable", "AvailableQuantity", "QtyAvailable", "Available",
+                      "QuantityAvailable", "OnHand"])
+        if disc is None and rec is not None and price is not None and rec > price:
+            disc = round(rec - price, 2)
+        ok = isinstance(resp, dict) and resp.get("Result") is not False
+        return {"price": price, "rec_price": rec, "discount": disc, "available": avail, "ok": ok}
+
     # ── cart ─────────────────────────────────────────────────────────────────
-    def add_item_to_cart(self, acct_id: int, shipment_id: int, item: dict, avail_oz: float) -> dict:
-        """POST /api/v2/cart/add_item_to_shopping_cart. avail_oz = guest Allotment."""
+    def add_item_to_cart(self, acct_id: int, shipment_id: int, item: dict, avail_oz: float,
+                         *, auto_discount: bool = True, auto_price: bool = True) -> dict:
+        """POST /api/v2/cart/add_item_to_shopping_cart. avail_oz = guest Allotment.
+
+        auto_discount/auto_price default True so Dutchie applies EVERY configured
+        auto-discount, promo and pricing rule to the line server-side (authoritative at
+        write time) — the budtender flow should never under-discount a real order."""
         body = {
             "AcctId": int(acct_id),
             "AvailOz": float(avail_oz or 0),
@@ -122,8 +162,8 @@ class PosRegisterClient(PosClient):
             "QuantityItem": True,
             "RecUnitPrice": item.get("RecUnitPrice", item.get("UnitPrice", 0)),
             "Register": int(self.store.register_id),
-            "RunAutoDiscount": False,
-            "RunAutoPrice": False,
+            "RunAutoDiscount": bool(auto_discount),
+            "RunAutoPrice": bool(auto_price),
             "SerialNo": item.get("SerialNo"),
             "ShipmentId": int(shipment_id),
             "UnitPrice": item.get("UnitPrice", 0),
@@ -191,10 +231,12 @@ class PosRegisterClient(PosClient):
         return (int(ship) if ship else None, int(sched) if sched else None)
 
     def submit_cart(self, acct_id: int, items: list[dict], *, room_id: str = "",
-                    final_status: str = "Ready for pickup") -> dict:
+                    final_status: str = "Ready for pickup",
+                    auto_discount: bool = True, auto_price: bool = True) -> dict:
         """Full flow: checkin -> details(allotment) -> select -> add* -> save.
 
         `items` are `map_product_row` dicts (each carries ProductId/BatchId/SerialNo/price).
+        auto_discount/auto_price flow to every add_item so the order gets all discounts.
         """
         checkin = self.checkin_guest(acct_id, room_id=room_id)
         ship, sched = self._ids_from_checkin(checkin)
@@ -211,7 +253,9 @@ class PosRegisterClient(PosClient):
             raise RuntimeError(f"no ShipmentId/ScheduleId (ship={ship} sched={sched}) — checkin failed?")
 
         self.select_guest_to_register(acct_id, sched, ship)
-        added = [self.add_item_to_cart(acct_id, ship, it, allot) for it in items]
+        added = [self.add_item_to_cart(acct_id, ship, it, allot,
+                                       auto_discount=auto_discount, auto_price=auto_price)
+                 for it in items]
         saved = self.update_transaction_status(ship, final_status)
         return {"shipment_id": ship, "schedule_id": sched, "allotment": allot,
                 "added": added, "saved": saved}
