@@ -15,7 +15,12 @@ import logging
 import os
 import re
 
+from django.core.cache import cache
+
 logger = logging.getLogger(__name__)
+
+_MISS = object()
+_PROFILE_TTL = 300  # the menu re-renders per filter change; cache the taste profile
 
 
 def _phone_candidates(phone: str) -> list[str]:
@@ -156,6 +161,36 @@ def load_profile_full(phone):
     except Exception:
         logger.debug("load_profile_full failed", exc_info=True)
         return None
+
+
+def load_profile_full_cached(phone, ttl=_PROFILE_TTL):
+    """Cached `load_profile_full`. The personalized menu re-renders on EVERY filter change,
+    so without this each keystroke makes a happytime Postgres round-trip. Negative results
+    (None) are cached too, so a slow/down DB isn't hammered. Cache failures fall through to
+    a live read — never breaks the page."""
+    if not phone:
+        return None
+    key = f"prof:{re.sub(r'[^0-9+]', '', phone)}"
+    try:
+        hit = cache.get(key, _MISS)
+        if hit is not _MISS:
+            return hit
+        # Stampede guard (mirrors catalog.get_inventory): only ONE worker per phone makes
+        # the DB round-trip; concurrent losers degrade to None instead of each stacking a
+        # 4s connect — a slow/down happytime DB can't exhaust gunicorn workers.
+        if not cache.add(f"{key}:lock", "1", 10):
+            return None
+    except Exception:
+        return load_profile_full(phone)
+    try:
+        val = load_profile_full(phone)
+        cache.set(key, val, ttl)
+        return val
+    finally:
+        try:
+            cache.delete(f"{key}:lock")
+        except Exception:
+            pass
 
 
 def load_product_enrichment(store_key):

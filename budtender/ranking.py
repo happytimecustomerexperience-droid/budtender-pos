@@ -22,6 +22,32 @@ W_KNOWN = {"margin": 0.22, "affinity": 0.40, "category": 0.04, "bucket": 0.12, "
 BUCKET_NUDGE = {"profit": 1.0, "core": 0.4, "traffic": 0.0}
 _TIER_CENTER = {"value": -0.6, "mid": 0.0, "top": 0.6}
 
+# Live in-session taste -> the affinity dicts the ranker already reads. This is what makes
+# EVERY customer's feed personalized: a new/guest/DB-down shopper has no persisted profile,
+# but the moment they view or add anything this visit, the feed adapts.
+_SESSION_AFF = {"category": "category_affinity", "brand": "brand_affinity",
+                "strain_type": "strain_type_affinity"}
+SESSION_WEIGHT = 0.6  # strong but not total — persisted taste still leads when present
+
+
+def blend_session_taste(profile, taste):
+    """Fold this visit's `taste` ({field: {name: count}}) into `profile`'s affinities.
+    Returns `profile` unchanged when there's no taste; builds a profile from taste alone
+    when there's no persisted profile (so ranking switches to the taste-first weights)."""
+    if not taste or not any(taste.get(f) for f in _SESSION_AFF):
+        return profile
+    eff = dict(profile or {})
+    for field, akey in _SESSION_AFF.items():
+        counts = taste.get(field) or {}
+        if not counts:
+            continue
+        mx = max(counts.values()) or 1
+        merged = dict(eff.get(akey) or {})
+        for name, c in counts.items():
+            merged[name] = min(1.0, _f(merged.get(name)) + SESSION_WEIGHT * (c / mx))
+        eff[akey] = merged
+    return eff
+
 
 def _f(v, default=0.0):
     try:
@@ -43,7 +69,11 @@ def affinity_score(p, profile):
     s = 0.0
     s += 1.6 * _aff(profile, "brand_affinity", p.get("brand"))
     s += 1.0 * _aff(profile, "strain_type_affinity", p.get("strain_type"))
-    s += 0.6 * _aff(profile, "category_affinity", p.get("category"))
+    # Match category under the raw Dutchie name OR the canonical cat_key — happytime's
+    # category vocabulary may differ from the raw ProductCategory; trying both avoids a
+    # silent 0 without re-keying or losing granularity when they already agree.
+    s += 0.6 * max(_aff(profile, "category_affinity", p.get("category")),
+                   _aff(profile, "category_affinity", p.get("cat_key")))
     s += 0.6 * _aff(profile, "subcategory_affinity", p.get("subcategory"))
     s += 0.4 * _aff(profile, "terpene_affinity", p.get("terpene"))
     return min(s, 1.0)
