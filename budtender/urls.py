@@ -19,4 +19,8 @@ urlpatterns = [
     path("cart/add/", views.cart_add, name="cart_add"),
     path("cart/remove/", views.cart_remove, name="cart_remove"),
     path("cart/submit/", views.cart_submit, name="cart_submit"),
+    path("sessions/", views.sessions, name="sessions"),
+    path("sessions/active/", views.sessions_active, name="sessions_active"),
+    path("sessions/rollups/", views.sessions_rollups, name="sessions_rollups"),
+    path("sessions/<int:visit_id>/", views.session_detail, name="session_detail"),
 ]

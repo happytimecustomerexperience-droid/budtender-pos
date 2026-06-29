@@ -22,6 +22,7 @@
   <button type="button" class="cartbtn" data-cart-open>🛒 Cart <span class="badge" id="cart-badge">{{ cart|length }}</span></button>
   <span class="cust-chip">👤 <b>{{ acct_name|default:"Guest" }}</b></span>
   <a class="restartbtn" href="{% url 'end' %}" title="Start a new session">↺ Restart</a>
+  <a class="link" href="{% url 'sessions' %}">Sessions</a>
   <a class="link" href="{% url 'logout' %}">Sign out</a>
 </header>
 
