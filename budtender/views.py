@@ -9,18 +9,23 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
 
 from django.contrib.auth import login as auth_login
 from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
-from django.shortcuts import redirect, render
+from django.core.paginator import Paginator
+from django.db.models import Count, Max, OuterRef, Q, Subquery, Sum
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from core.ratelimit import rate_limit
+from customers import tracking
 from customers.intelligence import load_customer_history, load_profile_full
-from customers.models import Customer
+from customers.models import Customer, ShopEvent, ShopVisit
 from customers.services import record_write, upsert_customer
 from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
@@ -90,6 +95,7 @@ def login_view(request):
         form = AuthenticationForm(request, data=request.POST)
         if form.is_valid():
             auth_login(request, form.get_user())
+            tracking.track(request, "login")
             return redirect("screen")
     else:
         form = AuthenticationForm(request)
@@ -111,12 +117,13 @@ def begin(request):
 
 @login_required
 def end_session(request):
+    tracking.end_visit(request, "abandoned")  # restart / new customer without checkout
     for k in ("acct_id", "acct_name", "acct_phone", "cart"):
         request.session.pop(k, None)
     return redirect("begin")
 
 
-def _start_session(request, acct_id, name, phone):
+def _start_session(request, acct_id, name, phone, how="lookup", **meta):
     request.session["acct_id"] = acct_id
     request.session["acct_name"] = name
     request.session["acct_phone"] = phone
@@ -124,6 +131,7 @@ def _start_session(request, acct_id, name, phone):
     allowed = request.session.get("guests") or {}
     allowed[str(acct_id)] = {"name": name or "", "phone": phone or ""}
     request.session["guests"] = allowed
+    tracking.start_visit(request, acct_id=acct_id, name=name, phone=phone, how=how, **meta)
     return redirect("screen")
 
 
@@ -174,7 +182,7 @@ def start(request):
         if not gid:
             ctx["error"] = "could not start a guest session"
             return render(request, "budtender/begin.html", ctx)
-        return _start_session(request, gid, "Guest", "")
+        return _start_session(request, gid, "Guest", "", how="guest")
 
     scan = {}
     files = request.FILES.getlist("images")
@@ -214,7 +222,9 @@ def start(request):
 
     if scan:
         upsert_customer({**scan, "phone": phone}, dutchie_acct_id=acct_id)
-    return _start_session(request, acct_id, name, phone)
+    how = "scan" if scan else how
+    return _start_session(request, acct_id, name, phone, how=how,
+                          scan_over21=scan.get("over_21") if scan else None)
 
 
 # ── POS screen (requires an active session) ────────────────────────────────────
@@ -271,6 +281,9 @@ def scan(request):
         allowed[str(acct_id)] = {"name": scan_result.get("accts_name", ""),
                                  "phone": scan_result.get("phone", "")}
         request.session["guests"] = allowed
+        tracking.start_visit(request, acct_id=acct_id, name=scan_result.get("accts_name", ""),
+                             phone=scan_result.get("phone", ""), how="scan",
+                             scan_over21=scan_result.get("over_21"))
     request.session["acct_phone"] = scan_result.get("phone") or ""
     ctx.update({"scan": scan_result, "acct_id": acct_id,
                 "history": load_customer_history(acct_id=acct_id, phone=scan_result.get("phone"),
@@ -300,6 +313,7 @@ def lookup(request):
         ctx["error"] = "Lookup failed — try again."
         return render(request, "budtender/_guests.html", ctx)
     ctx["guests"] = guests
+    tracking.track(request, "customer_search", detail=q[:120], results=len(guests))
     # Record which accounts THIS budtender is allowed to open (anchors `profile`
     # so it can't be used to enumerate arbitrary customers' PII).
     allowed = request.session.get("guests") or {}
@@ -326,6 +340,7 @@ def profile(request):
     request.session["acct_id"] = acct
     request.session["acct_name"] = name
     request.session["acct_phone"] = phone
+    tracking.start_visit(request, acct_id=acct, name=name, phone=phone, how="lookup")
     upsert_customer({"accts_name": name, "phone": phone},
                     dutchie_acct_id=int(acct) if str(acct).isdigit() else None)
     resp = render(request, "budtender/_profile.html", {
@@ -447,6 +462,7 @@ def _customer_ctx(request, full):
 def customer(request):
     if not request.session.get("acct_id"):
         return redirect("screen")
+    tracking.track(request, "profile_view")
     return render(request, "budtender/customer_preview.html", _customer_ctx(request, full=False))
 
 
@@ -456,6 +472,7 @@ def customer(request):
 def customer_full(request):
     if not request.session.get("acct_id"):
         return redirect("screen")
+    tracking.track(request, "profile_full_view")
     return render(request, "budtender/customer_full.html", _customer_ctx(request, full=True))
 
 
@@ -512,7 +529,29 @@ def menu(request):
         has_customer=bool(profile), acct_name=request.session.get("acct_name"),
         suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
     )
+    _track_browse(request, f, total, ctx["suggestions"])
     return render(request, "budtender/_menu.html", ctx)
+
+
+def _track_browse(request, f, total, suggestions):
+    """Log meaningful browse activity only (deduped) so the menu's frequent reloads don't
+    flood the event log: a search when the query changes, a category when it changes, and
+    the suggested item-set once per distinct set."""
+    if f.get("q"):
+        if request.session.get("_lastsearch") != f["q"]:
+            request.session["_lastsearch"] = f["q"]
+            tracking.track(request, "search", detail=f["q"][:120], results=total)
+    else:
+        request.session.pop("_lastsearch", None)
+        browse = f.get("cat") or "all"
+        if request.session.get("_lastbrowse") != browse:
+            request.session["_lastbrowse"] = browse
+            kind = "category" if f.get("cat") else "menu_browse"
+            tracking.track(request, kind, detail=f.get("cat") or "", sort=f.get("sort"), total=total)
+    if suggestions:
+        ids = [str(s.get("product_id")) for s in suggestions]
+        tracking.track(request, "suggestions_shown", dedupe_key=",".join(sorted(ids)),
+                       detail=f"{len(ids)} suggested", ids=ids)
 
 
 @login_required
@@ -530,6 +569,7 @@ def product(request, product_id):
                       {"missing": True, "acct_name": request.session.get("acct_name")})
     effects = [(e, education.effect_info(e)) for e in (p.get("effects") or [])]
     terp_aroma_effect = education.terpene_info(p.get("terpene"))
+    tracking.track(request, "product_view", product=p, dedupe_key=p.get("product_id"))
     similar = [s for s in catalog.query(catalog.get_inventory(store.name), None,
                                         {"cat": p["cat_key"], "sort": "popular"})
                if str(s.get("product_id")) != str(p.get("product_id"))][:6]
@@ -588,6 +628,8 @@ def cart_add(request):
     item["Cnt"] = cnt
     cart.append(item)
     request.session["cart"] = cart
+    tracking.track(request, "item_add", product=item, price=item.get("UnitPrice"),
+                   discount=item.get("Discount"), qty=cnt)
     return render(request, "budtender/_cart.html", _cart_ctx(cart))
 
 
@@ -602,7 +644,7 @@ def cart_remove(request):
     idx = int(request.POST.get("idx", -1))
     cart = request.session.get("cart", [])
     if 0 <= idx < len(cart):
-        cart.pop(idx)
+        tracking.track(request, "item_remove", product=cart.pop(idx))
     request.session["cart"] = cart
     return render(request, "budtender/_cart.html", _cart_ctx(cart))
 
@@ -623,6 +665,11 @@ def cart_submit(request):
                      shipment_id=result["shipment_id"],
                      summary=f"{len(cart)} items -> Ready for pickup",
                      username=getattr(request.user, "username", ""))
+        total = _cart_ctx(cart)["cart_total"]
+        tracking.track(request, "checkout", detail=f"{len(cart)} items",
+                       shipment_id=result["shipment_id"], total=total)
+        tracking.end_visit(request, "checked_out", shipment_id=result["shipment_id"],
+                           cart_total=total)
         # Checkout done → clear the session and bounce to the start page for the
         # next customer (HX-Redirect makes htmx do a full client-side navigation).
         for k in ("acct_id", "acct_name", "acct_phone", "cart"):
@@ -638,3 +685,122 @@ def cart_submit(request):
         logger.warning("cart submit failed: %s", exc)
         ctx["error"] = "Submit failed — please try again."
     return render(request, "budtender/_submit_result.html", ctx)
+
+
+# ── session-activity dashboard (operator-facing, read-only) ───────────────────
+_DATE_WINDOWS = {"today": 1, "7d": 7, "30d": 30, "all": None}
+
+_EVENT_META = {
+    "login": ("🔑", "Logged in"), "visit_start": ("🟢", "Visit started"),
+    "id_scan": ("🪪", "ID scanned"), "customer_search": ("🔍", "Customer search"),
+    "customer_selected": ("👤", "Customer selected"), "profile_view": ("📇", "Viewed profile"),
+    "profile_full_view": ("📋", "Viewed full profile"), "menu_browse": ("🧭", "Browsed menu"),
+    "search": ("🔎", "Searched"), "category": ("🗂️", "Category"),
+    "product_view": ("👁️", "Viewed product"), "suggestions_shown": ("✨", "Suggestions shown"),
+    "item_add": ("➕", "Added to cart"), "item_remove": ("➖", "Removed from cart"),
+    "checkout": ("✅", "Checked out"), "abandon": ("🚪", "Abandoned"),
+}
+
+
+def _visit_filters(request):
+    """Shared store/budtender/outcome/date filters for the session views."""
+    g = request.GET
+    qs = ShopVisit.objects.all()
+    store = g.get("store") or ""
+    budtender = g.get("budtender") or ""
+    outcome = g.get("outcome") or ""
+    win = g.get("win") if g.get("win") in _DATE_WINDOWS else "7d"
+    if store:
+        qs = qs.filter(store=store)
+    if budtender:
+        qs = qs.filter(budtender=budtender)
+    if outcome:
+        qs = qs.filter(outcome=outcome)
+    days = _DATE_WINDOWS[win]
+    if days:
+        qs = qs.filter(started_at__gte=timezone.now() - timezone.timedelta(days=days))
+    f = {"store": store, "budtender": budtender, "outcome": outcome, "win": win}
+    return qs, f
+
+
+def _active_visits():
+    # Annotate the last event kind in ONE bounded subquery — never `.events.last` in the
+    # template (that clones the qs per row = N+1, and this panel polls every 5s).
+    last_kind = ShopEvent.objects.filter(visit=OuterRef("pk")).order_by("-at").values("kind")[:1]
+    return (ShopVisit.objects.filter(ended_at__isnull=True)
+            .annotate(last_kind=Subquery(last_kind)).order_by("-started_at"))
+
+
+@login_required
+@rate_limit("sessions", limit=120, window=60)
+@require_http_methods(["GET"])
+def sessions(request):
+    qs, f = _visit_filters(request)
+    completed = qs.exclude(ended_at__isnull=True)
+    page = Paginator(completed, 40).get_page(request.GET.get("page"))
+    stores = list(ShopVisit.objects.values_list("store", flat=True).distinct())
+    budtenders = list(ShopVisit.objects.values_list("budtender", flat=True).distinct())
+    return render(request, "budtender/sessions_list.html", {
+        "active": _active_visits(), "page": page, "f": f,
+        "stores": sorted(s for s in stores if s),
+        "budtenders": sorted(b for b in budtenders if b),
+        "outcomes": ["checked_out", "abandoned"], "windows": list(_DATE_WINDOWS),
+    })
+
+
+@login_required
+@rate_limit("sessions", limit=600, window=60)
+@require_http_methods(["GET"])
+def sessions_active(request):
+    """Live partial — polled by the dashboard every few seconds."""
+    return render(request, "budtender/_active_panel.html", {"active": _active_visits()})
+
+
+@login_required
+@rate_limit("sessions", limit=120, window=60)
+@require_http_methods(["GET"])
+def session_detail(request, visit_id):
+    v = get_object_or_404(ShopVisit, pk=visit_id)
+    events = [{"e": e, "icon": _EVENT_META.get(e.kind, ("•", e.kind))[0],
+               "label": _EVENT_META.get(e.kind, ("•", e.kind))[1]} for e in v.events.all()]
+    return render(request, "budtender/session_detail.html", {"v": v, "events": events})
+
+
+@login_required
+@rate_limit("sessions", limit=60, window=60)
+@require_http_methods(["GET"])
+def sessions_rollups(request):
+    qs, f = _visit_filters(request)
+    by_budtender = list(qs.values("budtender").annotate(
+        visits=Count("id"),
+        checkouts=Count("id", filter=Q(outcome="checked_out")),
+        items_added=Sum("items_added"), items_viewed=Sum("items_viewed"),
+        revenue=Sum("cart_total", filter=Q(outcome="checked_out")),
+    ).order_by("-visits"))
+    for b in by_budtender:
+        b["rate"] = round(100 * (b["checkouts"] or 0) / b["visits"]) if b["visits"] else 0
+    by_customer = list(qs.filter(acct_id__isnull=False).values("acct_id", "acct_name").annotate(
+        visits=Count("id"), last=Max("started_at"),
+        bought=Count("id", filter=Q(outcome="checked_out")),
+    ).order_by("-visits")[:30])
+    # Bound the heavy event GROUP BY even when the window is "all" (the event table only
+    # grows — retention is indefinite). Cap the scan at <=365d regardless of window.
+    floor = timezone.now() - timezone.timedelta(days=_DATE_WINDOWS[f["win"]] or 365)
+    ev = ShopEvent.objects.filter(visit__in=qs, at__gte=floor)
+    top_lookup = list(ev.filter(kind="product_view").exclude(product_name="")
+                      .values("product_id", "product_name").annotate(n=Count("id")).order_by("-n")[:20])
+    top_search = list(ev.filter(kind="search").exclude(detail="")
+                      .values("detail").annotate(n=Count("id")).order_by("-n")[:20])
+    # Top suggested: ids live in each suggestions_shown event's meta list — tally in Python
+    # over a bounded slice, resolving names from the looked-up/added events we already have.
+    names = {str(r["product_id"]): r["product_name"] for r in top_lookup}
+    counter = Counter()
+    for e in ev.filter(kind="suggestions_shown").order_by("-at")[:1000]:
+        for pid in (e.meta or {}).get("ids", []):
+            counter[str(pid)] += 1
+    top_suggested = [{"product_id": pid, "product_name": names.get(pid, pid), "n": n}
+                     for pid, n in counter.most_common(20)]
+    return render(request, "budtender/sessions_rollups.html", {
+        "f": f, "by_budtender": by_budtender, "by_customer": by_customer,
+        "top_lookup": top_lookup, "top_search": top_search, "top_suggested": top_suggested,
+    })
