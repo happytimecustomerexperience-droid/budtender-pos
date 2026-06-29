@@ -255,7 +255,7 @@ def test_customer_requires_session(auth, monkeypatch):
 def test_customer_preview_renders(auth, monkeypatch):
     _use_store(monkeypatch)
     _sel_customer(auth)
-    monkeypatch.setattr(V, "load_profile_full", lambda phone: _profile_fixture())
+    monkeypatch.setattr(V, "load_profile_full_cached", lambda phone: _profile_fixture())
     monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
     r = auth.get(reverse("customer"), SERVER_NAME="localhost")
     body = r.content
@@ -269,7 +269,7 @@ def test_customer_preview_renders(auth, monkeypatch):
 def test_customer_full_renders(auth, monkeypatch):
     _use_store(monkeypatch)
     _sel_customer(auth)
-    monkeypatch.setattr(V, "load_profile_full", lambda phone: _profile_fixture())
+    monkeypatch.setattr(V, "load_profile_full_cached", lambda phone: _profile_fixture())
     monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
     r = auth.get(reverse("customer_full"), SERVER_NAME="localhost")
     body = r.content
@@ -291,7 +291,7 @@ def test_customer_full_degrades_on_malformed_history(auth, monkeypatch):
         {"product": "Good2", "brand": "B", "qty": 2, "times_bought": 2,
          "last_bought_at": "2026-06-01", "last_price": 20},    # str date
     ]
-    monkeypatch.setattr(V, "load_profile_full", lambda phone: prof)
+    monkeypatch.setattr(V, "load_profile_full_cached", lambda phone: prof)
     monkeypatch.setattr(V.catalog, "get_inventory", lambda store: [_inv_item()])
     r = auth.get(reverse("customer_full"), SERVER_NAME="localhost")
     assert r.status_code == 200 and b"All transactions" in r.content

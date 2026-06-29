@@ -16,7 +16,29 @@ from .models import ShopEvent, ShopVisit
 logger = logging.getLogger(__name__)
 
 _VISIT = "visit_id"                       # session key holding the open visit id
-_TMP = ("_seen", "_lastbrowse", "_lastsearch")  # per-visit scratch keys, reset on start/end
+_TMP = ("_seen", "_lastbrowse", "_lastsearch", "taste")  # per-visit scratch, reset on start/end
+_TASTE_CAP = 16                           # keep the session taste dict tiny
+
+
+def accrue_taste(request, product, weight=1):
+    """Bump this visit's live taste from a viewed/added product (category/brand/strain_type
+    — the exact keys ranking.blend_session_taste reads). Best-effort; never raises."""
+    try:
+        if not product:
+            return
+        t = request.session.get("taste") or {}
+        for field in ("category", "brand", "strain_type"):
+            val = (product.get(field) or "").strip()
+            if not val:
+                continue
+            d = t.setdefault(field, {})
+            d[val] = (d.get(val) or 0) + weight
+            if len(d) > _TASTE_CAP:
+                t[field] = dict(sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:_TASTE_CAP])
+        request.session["taste"] = t
+        request.session.modified = True
+    except Exception as exc:
+        logger.warning("accrue_taste failed: %s", exc)
 
 
 def _username(request):
@@ -43,14 +65,16 @@ def start_visit(request, *, acct_id, name="", phone="", how="lookup", store="", 
             if cur.acct_id == acct:
                 return cur                                # same customer -> reuse
             _close(cur, "abandoned")                      # switching customer -> close old
+        # Clear per-visit scratch (incl. `taste`) BEFORE create(): if anything below raises,
+        # the prior shopper's taste must not survive into the next customer's session.
+        for k in _TMP:
+            request.session.pop(k, None)
+        request.session["_seen"] = []
         store = store or request.session.get("store") or ""
         v = ShopVisit.objects.create(
             store=str(store), budtender=_username(request), acct_id=acct,
             acct_name=name or "", phone=phone or "", how_started=how or "")
         request.session[_VISIT] = v.id
-        for k in _TMP:
-            request.session.pop(k, None)
-        request.session["_seen"] = []
         _log(v, request, "visit_start", detail=how, meta=meta)
         return v
     except Exception as exc:

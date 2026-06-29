@@ -24,13 +24,13 @@ from django.views.decorators.http import require_http_methods
 
 from core.ratelimit import rate_limit
 from customers import tracking
-from customers.intelligence import load_customer_history, load_profile_full
+from customers.intelligence import load_customer_history, load_profile_full_cached
 from customers.models import Customer, ShopEvent, ShopVisit
 from customers.services import record_write, upsert_customer
 from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
 
-from . import catalog, education, imagemap
+from . import catalog, education, imagemap, ranking
 
 logger = logging.getLogger(__name__)
 
@@ -412,7 +412,7 @@ def _customer_ctx(request, full):
     acct_id = request.session.get("acct_id")
     phone = request.session.get("acct_phone") or ""
     name = request.session.get("acct_name") or ""
-    profile = load_profile_full(phone) if phone else None
+    profile = load_profile_full_cached(phone) if phone else None
     store = _active_store(request)
     cust = None
     if acct_id and str(acct_id).isdigit():
@@ -427,7 +427,9 @@ def _customer_ctx(request, full):
             logger.warning("customer inv load failed: %s", exc)
     # purchase_history comes from an uncontrolled remote DB; keep only dict rows so a
     # stray null/string element degrades instead of 500-ing (same guard as ranking/suggest).
-    hist = [h for h in ((profile or {}).get("purchase_history") or []) if isinstance(h, dict)]
+    # COPY each row — `profile` is now cached/shared, so the full-page `h["spend"]=` below
+    # must not mutate the cached object.
+    hist = [dict(h) for h in ((profile or {}).get("purchase_history") or []) if isinstance(h, dict)]
     sugg = catalog.suggestions(store.name, profile, 8) if (store and profile) else []
     if not sugg and inv:                      # new/anon customer: top picks, never empty
         sugg = catalog.query(inv, profile, {"sort": "foryou"})[:8]
@@ -503,7 +505,10 @@ def menu(request):
         ctx["error"] = "no store configured"
         return render(request, "budtender/_menu.html", ctx)
     phone = request.session.get("acct_phone") or ""
-    profile = load_profile_full(phone) if phone else None
+    # Cached persisted taste (fast — no DB hit per filter change) blended with THIS visit's
+    # live behavior, so every customer (new / guest / DB-down) gets a personalized feed.
+    profile = load_profile_full_cached(phone) if phone else None
+    eff = ranking.blend_session_taste(profile, request.session.get("taste"))
     f = _filters(request)
     try:
         items = catalog.get_inventory(store.name)
@@ -517,7 +522,7 @@ def menu(request):
     # they toggle filters, the checkbox state is respected (unchecked -> off).
     if facets["has_doh"] and request.GET.get("f") != "1":
         f["doh_only"] = True
-    results = catalog.query(items, profile, f)
+    results = catalog.query(items, eff, f)
     total = len(results)
     pages = max(1, (total + MENU_PAGE - 1) // MENU_PAGE)
     page = min(f["page"], pages)
@@ -526,8 +531,8 @@ def menu(request):
         products=results[start_i:start_i + MENU_PAGE], total=total,
         page=page, pages=pages, has_prev=page > 1, has_next=page < pages,
         cats=catalog.categories(items), facets=facets, f=f,
-        has_customer=bool(profile), acct_name=request.session.get("acct_name"),
-        suggestions=catalog.suggestions(store.name, profile, 6) if profile else [],
+        has_customer=bool(eff), acct_name=request.session.get("acct_name"),
+        suggestions=catalog.suggestions(store.name, eff, 6) if eff else [],
     )
     _track_browse(request, f, total, ctx["suggestions"])
     return render(request, "budtender/_menu.html", ctx)
@@ -570,6 +575,7 @@ def product(request, product_id):
     effects = [(e, education.effect_info(e)) for e in (p.get("effects") or [])]
     terp_aroma_effect = education.terpene_info(p.get("terpene"))
     tracking.track(request, "product_view", product=p, dedupe_key=p.get("product_id"))
+    tracking.accrue_taste(request, p, weight=1)   # live personalization signal
     similar = [s for s in catalog.query(catalog.get_inventory(store.name), None,
                                         {"cat": p["cat_key"], "sort": "popular"})
                if str(s.get("product_id")) != str(p.get("product_id"))][:6]
@@ -630,6 +636,7 @@ def cart_add(request):
     request.session["cart"] = cart
     tracking.track(request, "item_add", product=item, price=item.get("UnitPrice"),
                    discount=item.get("Discount"), qty=cnt)
+    tracking.accrue_taste(request, p, weight=3)   # an add is a stronger signal than a view
     return render(request, "budtender/_cart.html", _cart_ctx(cart))
 
 

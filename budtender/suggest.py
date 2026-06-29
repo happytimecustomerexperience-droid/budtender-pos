@@ -95,7 +95,7 @@ def suggest(inventory, profile, limit=8):
 
     # Pass 2 — similar (category/brand/strain match they haven't necessarily bought).
     for p in stock:
-        cat_match = p.get("category") in top_cats
+        cat_match = p.get("category") in top_cats or p.get("cat_key") in top_cats
         brand_match = top_brand and p.get("brand") == top_brand
         strain_match = _norm(p.get("strain")) in fav_strains and bool(p.get("strain"))
         if not (cat_match or brand_match or strain_match):
@@ -113,7 +113,8 @@ def suggest(inventory, profile, limit=8):
     core_cats = {h.get("category") for h in hist if isinstance(h, dict)
                  and (h.get("bucket") == "core")}
     for p in stock:
-        if p.get("bucket") != "profit" or p.get("category") not in core_cats:
+        if p.get("bucket") != "profit" or (
+                p.get("category") not in core_cats and p.get("cat_key") not in core_cats):
             continue
         score = 72 + (8 if _is_fresh(p) else 0) + _f(p.get("velocity")) * 2
         add(p, "profit_upgrade", score, f"A premium step-up in {p.get('category')}.")
