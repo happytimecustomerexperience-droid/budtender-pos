@@ -126,6 +126,16 @@ def test_track_degrades(monkeypatch):
     tracking.track(r, "search", detail="q")                    # must not raise
 
 
+def test_start_visit_clears_taste_even_on_post_create_failure(monkeypatch):
+    """A prior shopper's taste must never leak into the next customer, even if start_visit
+    fails AFTER creating the visit row."""
+    r = _req()
+    r.session["taste"] = {"category": {"Flower": 9}}           # previous customer's taste
+    monkeypatch.setattr(tracking, "_log", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    assert tracking.start_visit(r, acct_id=2) is None          # _log raises post-create
+    assert "taste" not in r.session                            # cleared before create
+
+
 # ── integration: views wire the hooks ─────────────────────────────────────────
 def test_end_session_abandons_open_visit(auth, monkeypatch):
     _use_store(monkeypatch)
