@@ -1,6 +1,8 @@
-"""Local cache of scanned/looked-up guests + an immutable Dutchie WRITE audit."""
+"""Local cache of scanned/looked-up guests + an immutable Dutchie WRITE audit,
+plus per-visit activity tracking (ShopVisit / ShopEvent)."""
 
 from django.db import models
+from django.utils import timezone
 
 
 class Customer(models.Model):
@@ -55,3 +57,72 @@ class DutchieWriteAudit(models.Model):
 
     def __str__(self):
         return f"{self.action} {self.store} ok={self.ok} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class ShopVisit(models.Model):
+    """One customer's session with one budtender at one store: created when a customer is
+    identified, ended at checkout (checked_out) or restart/new-customer (abandoned)."""
+
+    OUTCOMES = [("open", "open"), ("checked_out", "checked out"), ("abandoned", "abandoned")]
+
+    store = models.CharField(max_length=120)
+    budtender = models.CharField(max_length=150, blank=True)
+    acct_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    acct_name = models.CharField(max_length=255, blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    how_started = models.CharField(max_length=20, blank=True)  # scan/lookup/guest/phone/name/created
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=16, choices=OUTCOMES, default="open", db_index=True)
+    event_count = models.PositiveIntegerField(default=0)
+    items_viewed = models.PositiveIntegerField(default=0)
+    items_added = models.PositiveIntegerField(default=0)
+    cart_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    order_shipment_id = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["store", "started_at"]),
+            models.Index(fields=["budtender"]),
+            models.Index(fields=["outcome"]),
+        ]
+
+    @property
+    def is_open(self):
+        return self.ended_at is None
+
+    @property
+    def duration_seconds(self):
+        return int(((self.ended_at or timezone.now()) - self.started_at).total_seconds())
+
+    @property
+    def duration_display(self):
+        s = self.duration_seconds
+        return f"{s // 60}m {s % 60}s" if s >= 60 else f"{s}s"
+
+    def __str__(self):
+        return f"{self.acct_name or 'Guest'} @ {self.store} ({self.outcome})"
+
+
+class ShopEvent(models.Model):
+    """One tracked action inside a visit (or a standalone budtender `login`). No new PII:
+    only acct_id/name (already on Customer) + behavior — never DOB/ID#/address."""
+
+    visit = models.ForeignKey(ShopVisit, null=True, blank=True, on_delete=models.CASCADE,
+                              related_name="events")
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+    kind = models.CharField(max_length=32, db_index=True)
+    budtender = models.CharField(max_length=150, blank=True)
+    acct_id = models.BigIntegerField(null=True, blank=True)
+    product_id = models.CharField(max_length=64, blank=True)
+    product_name = models.CharField(max_length=255, blank=True)
+    detail = models.CharField(max_length=200, blank=True)
+    meta = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["at"]
+        indexes = [models.Index(fields=["kind", "at"]), models.Index(fields=["at"])]
+
+    def __str__(self):
+        return f"{self.kind} {self.product_name or self.detail}".strip()
