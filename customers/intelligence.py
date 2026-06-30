@@ -137,7 +137,8 @@ def load_profile_full(phone):
                 """
                 SELECT total_orders, last_purchase_at, price_tier, novelty_score,
                        brand_affinity, category_affinity, strain_type_affinity,
-                       subcategory_affinity, terpene_affinity, bucket_mix, purchase_history
+                       subcategory_affinity, terpene_affinity, flavor_affinity,
+                       bucket_mix, thc_min, thc_max, purchase_history
                 FROM budtender_customerprofile WHERE phone = ANY(%s) LIMIT 1
                 """,
                 (cands,),
@@ -155,8 +156,11 @@ def load_profile_full(phone):
             "strain_type_affinity": row[6] or {},
             "subcategory_affinity": row[7] or {},
             "terpene_affinity": row[8] or {},
-            "bucket_mix": row[9] or {},
-            "purchase_history": row[10] or [],
+            "flavor_affinity": row[9] or {},
+            "bucket_mix": row[10] or {},
+            "thc_min": row[11],
+            "thc_max": row[12],
+            "purchase_history": row[13] or [],
         }
     except Exception:
         logger.debug("load_profile_full failed", exc_info=True)

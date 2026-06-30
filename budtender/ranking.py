@@ -26,7 +26,7 @@ _TIER_CENTER = {"value": -0.6, "mid": 0.0, "top": 0.6}
 # EVERY customer's feed personalized: a new/guest/DB-down shopper has no persisted profile,
 # but the moment they view or add anything this visit, the feed adapts.
 _SESSION_AFF = {"category": "category_affinity", "brand": "brand_affinity",
-                "strain_type": "strain_type_affinity"}
+                "strain_type": "strain_type_affinity", "flavor": "flavor_affinity"}
 SESSION_WEIGHT = 0.6  # strong but not total — persisted taste still leads when present
 
 
@@ -63,6 +63,31 @@ def _aff(profile, key, val):
     return _f(d.get(val), 0.0)
 
 
+def _flavor_aff(profile, p):
+    """Best match of the product's flavors against the customer's flavor_affinity."""
+    fa = (profile or {}).get("flavor_affinity") or {}
+    if not fa:
+        return 0.0
+    return max((_f(fa.get(fl)) for fl in (p.get("flavors") or []) if fl), default=0.0)
+
+
+def thc_band_fit(p, profile):
+    """1.0 when the product THC sits in the customer's usual band [thc_min, thc_max],
+    fading over ~10pp outside it. 0 when the band or the product THC is unknown."""
+    if not profile:
+        return 0.0
+    lo, hi, thc = profile.get("thc_min"), profile.get("thc_max"), p.get("thc")
+    if lo is None or hi is None or thc in (None, ""):
+        return 0.0
+    lo, hi, thc = _f(lo), _f(hi), _f(thc)
+    if lo > hi:
+        lo, hi = hi, lo
+    if lo <= thc <= hi:
+        return 1.0
+    dist = (lo - thc) if thc < lo else (thc - hi)
+    return max(0.0, 1.0 - dist / 10.0)
+
+
 def affinity_score(p, profile):
     if not profile:
         return 0.0
@@ -76,6 +101,7 @@ def affinity_score(p, profile):
                    _aff(profile, "category_affinity", p.get("cat_key")))
     s += 0.6 * _aff(profile, "subcategory_affinity", p.get("subcategory"))
     s += 0.4 * _aff(profile, "terpene_affinity", p.get("terpene"))
+    s += 0.4 * _flavor_aff(profile, p)
     return min(s, 1.0)
 
 
@@ -125,6 +151,7 @@ def score_product(p, profile, w, m_lo, m_hi, mid, recent_brands, recent_cats, pr
         + w["quality"] * quality_fit(p, profile)
         + w["budget"] * budget_fit
         + novelty_bias(p, profile)
+        + 0.12 * thc_band_fit(p, profile)   # in their usual potency band
         + recency
     )
 

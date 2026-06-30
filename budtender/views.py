@@ -30,7 +30,7 @@ from customers.services import record_write, upsert_customer
 from dutchie.pos_register_client import PosRegisterClient
 from dutchie.stores import load_stores
 
-from . import catalog, education, imagemap, ranking
+from . import catalog, education, imagemap, pairing, persona, ranking
 
 logger = logging.getLogger(__name__)
 
@@ -388,26 +388,6 @@ def _fav_strains(hist, n=8):
     return sorted(agg.values(), key=lambda a: a["times"], reverse=True)[:n]
 
 
-def _per_category_picks(profile, inv, n_cats=4, per=2):
-    """Their best in-stock items in each of their favorite categories (affinity-ordered)."""
-    if not inv or not profile:
-        return []
-    seen, picks = set(), []
-    for raw, _w in sorted((profile.get("category_affinity") or {}).items(),
-                          key=lambda kv: _affw(kv[1]), reverse=True):
-        ck = imagemap.category_key(raw) or "other"
-        if ck in seen:
-            continue
-        seen.add(ck)
-        items = catalog.query(inv, profile, {"cat": ck, "sort": "foryou"})[:per]
-        if items:
-            picks.append({"key": ck, "label": catalog.CAT_LABELS.get(ck, str(raw).title()),
-                          "items": items})
-        if len(picks) >= n_cats:
-            break
-    return picks
-
-
 def _customer_ctx(request, full):
     acct_id = request.session.get("acct_id")
     phone = request.session.get("acct_phone") or ""
@@ -430,12 +410,14 @@ def _customer_ctx(request, full):
     # COPY each row — `profile` is now cached/shared, so the full-page `h["spend"]=` below
     # must not mutate the cached object.
     hist = [dict(h) for h in ((profile or {}).get("purchase_history") or []) if isinstance(h, dict)]
+    ranked = catalog.query(inv, profile, {"sort": "foryou"}) if inv else []   # rank ONCE
     sugg = catalog.suggestions(store.name, profile, 8) if (store and profile) else []
-    if not sugg and inv:                      # new/anon customer: top picks, never empty
-        sugg = catalog.query(inv, profile, {"sort": "foryou"})[:8]
+    if not sugg and ranked:                   # new/anon customer: top picks, never empty
+        sugg = ranked[:8]
     ctx = {
         "acct_id": acct_id, "acct_name": name, "acct_phone": phone,
         "cust": cust, "profile": profile, "cart": request.session.get("cart", []),
+        "persona": persona.summarize(profile),
         "fav_categories": _ranked_affinity((profile or {}).get("category_affinity"), 6),
         "fav_brands": _ranked_affinity((profile or {}).get("brand_affinity"), 6),
         "fav_strain_types": _ranked_affinity((profile or {}).get("strain_type_affinity"), 5),
@@ -445,7 +427,7 @@ def _customer_ctx(request, full):
         "fav_strains": _fav_strains(hist, 8),
         "fav_products": _fav_products(hist, 6),
         "suggestions": sugg,
-        "picks": _per_category_picks(profile, inv, n_cats=4, per=2),
+        "picks": _carousels(ranked, profile, n_cats=4, per=2),   # one rank + group (no N+1)
         "history_count": len(hist),
     }
     if full:
@@ -527,15 +509,61 @@ def menu(request):
     pages = max(1, (total + MENU_PAGE - 1) // MENU_PAGE)
     page = min(f["page"], pages)
     start_i = (page - 1) * MENU_PAGE
+    # Personalized "home": per-category carousels + cart-aware pairs, only on the default
+    # (unfiltered) view — once they tab/search, just show the filtered grid.
+    default_view = not f.get("cat") and not f.get("q")
+    carousels = _carousels(results, eff, n_cats=5, per=15) if (eff and default_view) else []
+    cart = request.session.get("cart", [])
+    anchor = _cart_anchor(store, cart) if (cart and default_view) else None
+    cart_pairs = pairing.pair_for(items, anchor, eff, n=4) if anchor else []
     ctx.update(
         products=results[start_i:start_i + MENU_PAGE], total=total,
         page=page, pages=pages, has_prev=page > 1, has_next=page < pages,
         cats=catalog.categories(items), facets=facets, f=f,
         has_customer=bool(eff), acct_name=request.session.get("acct_name"),
-        suggestions=catalog.suggestions(store.name, eff, 6) if eff else [],
+        # The For-You strip is a fallback shown ONLY when there are no carousels (see
+        # _menu.html) — don't run the 3-pass suggest scan on filtered/keystroke views.
+        suggestions=catalog.suggestions(store.name, eff, 6) if (eff and default_view and not carousels) else [],
+        carousels=carousels, cart_pairs=cart_pairs,
+        persona=persona.summarize(profile),
     )
     _track_browse(request, f, total, ctx["suggestions"])
     return render(request, "budtender/_menu.html", ctx)
+
+
+def _carousels(ranked, profile, n_cats=5, per=15):
+    """Per-category rails built by GROUPING the already-ranked feed (one rank, no re-query) —
+    categories ordered by the customer's affinity, top-`per` of each."""
+    if not ranked or not profile:
+        return []
+    groups = {}
+    for p in ranked:
+        groups.setdefault(p["cat_key"], []).append(p)   # ranked order preserved within each
+    cat_aff = profile.get("category_affinity") or {}
+
+    def affw(ck):
+        return max((_affw(w) for raw, w in cat_aff.items()
+                    if (imagemap.category_key(raw) or "other") == ck), default=0.0)
+
+    out = []
+    for ck in sorted(groups, key=affw, reverse=True):
+        out.append({"key": ck, "label": catalog.CAT_LABELS.get(ck, ck.title()),
+                    "items": groups[ck][:per]})
+        if len(out) >= n_cats:
+            break
+    return out
+
+
+def _cart_anchor(store, cart):
+    """The priciest line in the cart — the cross-sell anchor (resolved to a full product)."""
+    if not (store and cart):
+        return None
+    top = max(cart, key=lambda it: float(it.get("UnitPrice") or 0))
+    try:
+        return catalog.find_item(store.name, product_id=top.get("ProductId"))
+    except Exception as exc:
+        logger.warning("cart anchor resolve failed: %s", exc)
+        return None
 
 
 def _track_browse(request, f, total, suggestions):

@@ -1,12 +1,26 @@
 {% load static %}
 {% if error %}<div class="banner err">{{ error }}</div>{% else %}
 
-{% if has_customer and suggestions %}
+{% if persona %}
+<div class="persona-bar">
+  <span class="seg seg-{{ persona.segment|lower }}">{{ persona.segment }}</span>
+  {% if persona.line %}<span class="pline">{{ persona.line }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if cart_pairs %}
+<section class="section">
+  <h2>🛒 Round out the cart</h2>
+  <div class="rail">{% for p in cart_pairs %}{% include "budtender/_product_card.html" %}{% endfor %}</div>
+</section>
+{% endif %}
+
+{% if carousels %}
+  {% for g in carousels %}{% include "budtender/_carousel.html" %}{% endfor %}
+{% elif has_customer and suggestions %}
 <section class="section">
   <h2>For {{ acct_name|default:"this customer" }} — next best</h2>
-  <div class="rail">
-    {% for p in suggestions %}{% include "budtender/_product_card.html" %}{% endfor %}
-  </div>
+  <div class="rail">{% for p in suggestions %}{% include "budtender/_product_card.html" %}{% endfor %}</div>
 </section>
 {% endif %}
 

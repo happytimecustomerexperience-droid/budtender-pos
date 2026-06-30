@@ -10,7 +10,7 @@
     <div class="body">
       {% if p.brand %}<div class="brand">{{ p.brand }}</div>{% endif %}
       <div class="name">{{ p.name }}</div>
-      {% if p.why %}<div class="why">{{ p.why }}</div>{% endif %}
+      {% if p.why %}<div class="why">{{ p.why }}{% if p.confidence %} <span class="conf conf-{{ p.confidence }}">{{ p.confidence }} match</span>{% endif %}</div>{% endif %}
       <div class="meta">
       <span class="price">${{ p.price|floatformat:0 }}</span>
       {% if p.price_was and p.price_was > p.price %}<span class="was">${{ p.price_was|floatformat:0 }}</span>{% endif %}

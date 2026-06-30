@@ -193,6 +193,31 @@ main{padding:16px 18px 40px;max-width:1500px;margin:0 auto}
 .pcard .thc{margin-left:auto}
 .pcard .addrow{display:flex;gap:6px;padding:0 11px 11px}
 .pcard .addrow input{width:54px;min-height:40px;padding:6px;text-align:center}
+
+/* ── persona bar + carousels + confidence (perfect feed) ── */
+.persona-bar,.persona-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px;font-size:14px}
+.persona-line{margin:6px 0 8px}
+.persona-bar .pline,.persona-line .pline{color:var(--sage)}
+.seg{display:inline-block;padding:3px 11px;border-radius:999px;font-weight:800;font-size:12px;
+  text-transform:uppercase;letter-spacing:.04em;background:var(--fog);color:var(--cream)}
+.seg-champion{background:rgba(255,183,77,.18);color:var(--amber)}
+.seg-loyal{background:rgba(46,204,113,.16);color:var(--good)}
+.seg-new{background:rgba(124,168,255,.16);color:#7ca8ff}
+.seg-lapsed{background:rgba(255,138,0,.16);color:var(--ember)}
+.carousel{margin-bottom:18px}
+.crl-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.crl-head h2{margin:0}
+.crl-nav{display:flex;gap:6px}
+.crl-arrow{width:40px;height:40px;min-height:40px;border-radius:50%;padding:0;font-size:22px;
+  line-height:1;background:var(--fog);color:var(--cream);font-weight:700}
+.crl-arrow:hover{background:var(--amber);color:#1a130a}
+.crl-rail{scroll-behavior:smooth;scroll-snap-type:x proximity}
+.crl-rail .pcard{scroll-snap-align:start}
+.conf{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;
+  padding:1px 7px;border-radius:999px;vertical-align:middle}
+.conf-high{background:rgba(46,204,113,.18);color:var(--good)}
+.conf-medium{background:rgba(255,183,77,.18);color:var(--amber)}
+.conf-low{background:var(--fog);color:var(--sage)}
 .pcard .addrow button{flex:1;min-height:40px;padding:6px}
 
 .pcard a.plink{color:inherit;text-decoration:none;display:block}

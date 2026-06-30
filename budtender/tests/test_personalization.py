@@ -138,3 +138,43 @@ def test_menu_personalizes_from_session_taste(auth, monkeypatch):
     s.save()
     r = auth.get(reverse("menu") + "?sort=foryou", SERVER_NAME="localhost")
     assert r.status_code == 200 and b"sorted for Jane" in r.content   # personalized w/o profile
+
+
+# ── hidden-data signals: flavor + THC band ────────────────────────────────────
+def test_thc_band_fit_in_out_unknown():
+    prof = {"thc_min": 25, "thc_max": 30}
+    assert ranking.thc_band_fit({"thc": 27}, prof) == 1.0
+    assert 0 < ranking.thc_band_fit({"thc": 20}, prof) < 1.0
+    assert ranking.thc_band_fit({"thc": 27}, {}) == 0.0          # no band -> no signal
+    assert ranking.thc_band_fit({"thc": None}, prof) == 0.0
+
+
+def test_flavor_affinity_lifts_score():
+    a = _item("Flower", "flower", "A", "hybrid", 0.5, 40)
+    b = _item("Flower", "flower", "B", "hybrid", 0.5, 40)
+    a["flavors"], b["flavors"] = ["berry"], ["pine"]
+    ranked = ranking.rank([a, b], {"flavor_affinity": {"berry": 0.9}})
+    assert ranked[0]["brand"] == "A"                            # flavor match wins at equal margin
+
+
+def test_thc_band_lifts_score():
+    a = _item("Flower", "flower", "A", "hybrid", 0.5, 40)
+    b = _item("Flower", "flower", "B", "hybrid", 0.5, 40)
+    a["thc"], b["thc"] = 27, 15
+    ranked = ranking.rank([a, b], {"thc_min": 25, "thc_max": 30})
+    assert ranked[0]["brand"] == "A"                            # in-band wins at equal margin
+
+
+def test_menu_renders_per_category_carousels(auth, monkeypatch):
+    cache.clear()
+    _use_store(monkeypatch)
+    inv = [_item("Flower", "flower", "A", "hybrid", 0.5, 40),
+           _item("Vaporizer", "vapes", "B", "indica", 0.5, 25)]
+    monkeypatch.setattr(V.catalog, "get_inventory", lambda store: inv)
+    s = auth.session
+    s["acct_id"] = 1
+    s["acct_name"] = "Jane"
+    s["taste"] = {"category": {"flower": 5}}
+    s.save()
+    r = auth.get(reverse("menu"), SERVER_NAME="localhost")
+    assert r.status_code == 200 and b"for Jane" in r.content and b"Flower" in r.content
