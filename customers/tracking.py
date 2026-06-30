@@ -27,14 +27,20 @@ def accrue_taste(request, product, weight=1):
         if not product:
             return
         t = request.session.get("taste") or {}
-        for field in ("category", "brand", "strain_type"):
-            val = (product.get(field) or "").strip()
+
+        def _bump(field, val):
+            val = (val or "").strip() if isinstance(val, str) else val
             if not val:
-                continue
+                return
             d = t.setdefault(field, {})
             d[val] = (d.get(val) or 0) + weight
             if len(d) > _TASTE_CAP:
                 t[field] = dict(sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:_TASTE_CAP])
+
+        for field in ("category", "brand", "strain_type"):
+            _bump(field, product.get(field))
+        for fl in (product.get("flavors") or []):
+            _bump("flavor", fl)
         request.session["taste"] = t
         request.session.modified = True
     except Exception as exc:
