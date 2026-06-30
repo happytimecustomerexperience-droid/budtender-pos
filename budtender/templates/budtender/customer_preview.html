@@ -32,6 +32,7 @@
     <div class="idcard">
       <div class="who">
         <h1>{{ acct_name|default:"Customer" }}</h1>
+        {% if persona %}<div class="persona-line"><span class="seg seg-{{ persona.segment|lower }}">{{ persona.segment }}</span>{% if persona.line %} <span class="pline">{{ persona.line }}</span>{% endif %}</div>{% endif %}
         <div class="meta-line">
           {% if cust and cust.over_21 is not None %}<span class="{% if cust.over_21 %}badge-ok{% else %}badge-bad{% endif %}">{% if cust.over_21 %}21+ ✓{% else %}UNDER 21 ✕{% endif %}</span>{% endif %}
           {% if acct_phone %} 📞 {{ acct_phone }}{% endif %}

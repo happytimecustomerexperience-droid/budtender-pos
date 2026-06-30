@@ -19,4 +19,16 @@
     var p = (e.detail && e.detail.requestConfig && e.detail.requestConfig.path) || "";
     if (p.indexOf("/cart/add/") !== -1 && e.detail.successful) openCart();
   });
+
+  // Carousel arrows: page the sibling rail ~5 cards at a time.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-rail-prev],[data-rail-next]");
+    if (!btn) return;
+    var sec = btn.closest(".carousel");
+    var rail = sec && sec.querySelector(".crl-rail");
+    if (!rail) return;
+    var card = rail.querySelector(".pcard");
+    var step = card ? (card.offsetWidth + 14) * 5 : rail.clientWidth;
+    rail.scrollBy({ left: btn.hasAttribute("data-rail-prev") ? -step : step, behavior: "smooth" });
+  });
 })();
