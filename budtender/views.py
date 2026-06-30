@@ -81,9 +81,12 @@ def _parse_guests(raw) -> list[dict]:
             continue
         acct = r.get("Guest_id") or r.get("AcctId") or r.get("CustomerId") or r.get("Id")
         name = (r.get("Name") or f"{r.get('FirstName','')} {r.get('LastName','')}").strip()
+        pt = (r.get("PatientType") or "").strip()
+        is_med = "med" in pt.lower()
         out.append({"acct_id": acct, "name": name or "(unknown)",
                     "phone": r.get("PhoneNo") or r.get("Phone") or r.get("CellPhone") or "",
-                    "patient_type": r.get("PatientType") or "",
+                    "patient_type": pt, "is_medical": is_med,
+                    "pt_label": ("Medical" if is_med else "Rec") if pt else "",
                     "last": (r.get("LastTransaction") or "")[:10]})
     return out
 
@@ -294,16 +297,18 @@ def scan(request):
 
 
 @login_required
-@rate_limit("lookup", limit=40, window=60)
+@rate_limit("lookup", limit=150, window=60)   # typeahead fires more often (debounced keyup)
 @require_http_methods(["POST"])
 def lookup(request):
     store = _active_store(request)
     q = (request.POST.get("phone") or request.POST.get("name") or "").strip()
-    ctx = {"store": store, "query": q}
+    # mode=start (begin gate) -> a result fills the phone to start; else select a customer.
+    mode = "start" if request.POST.get("mode") == "start" else "select"
+    ctx = {"store": store, "query": q, "mode": mode}
     if not store:
         ctx["error"] = "no store configured (create stores.json)"
         return render(request, "budtender/_guests.html", ctx)
-    if not q:
+    if len(q) < 3:                              # wait for a meaningful fragment (don't hammer Dutchie)
         ctx["guests"] = []
         return render(request, "budtender/_guests.html", ctx)
     try:
