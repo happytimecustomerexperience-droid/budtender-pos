@@ -31,11 +31,12 @@
     <input type="file" name="images" accept="image/*" capture="environment" multiple aria-label="Scan ID">
     <button type="submit" class="ghost">Scan ID</button>
   </form>
-  <form hx-post="{% url 'lookup' %}" hx-target="#guests" class="grow">
+  <form hx-post="{% url 'lookup' %}" hx-target="#guests"
+        hx-trigger="submit, keyup changed delay:350ms" class="grow ac-form">
     <input class="grow" name="phone" placeholder="Search customer by phone…" inputmode="tel" autocomplete="off">
     <button type="submit">Find</button>
   </form>
-  <div id="guests"></div>
+  <div id="guests" class="ac-results"></div>
   <div id="profile">{% if not acct_id %}<span class="muted">No customer selected — scan or search, or continue as guest.</span>{% endif %}</div>
 </div>
 

@@ -181,6 +181,35 @@ def test_lookup_lists_guests(auth, monkeypatch):
     assert r.status_code == 200 and b"Test Customer" in r.content and b"710000002" in r.content
 
 
+def test_lookup_short_query_skips_dutchie(auth, monkeypatch):
+    _use_store(monkeypatch)
+    called = []
+    monkeypatch.setattr(V, "_client", lambda s: type("C", (), {
+        "guest_search": lambda self, q: called.append(q) or {"Data": []}})())
+    r = auth.post(reverse("lookup"), {"phone": "50"}, SERVER_NAME="localhost")   # 2 chars
+    assert r.status_code == 200 and called == []                                 # no Dutchie call
+
+
+def test_lookup_autocomplete_name_and_medical_pill(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda s: FakeClient(guests={"Data": [
+        {"Guest_id": 1, "Name": "Med Mary", "PhoneNo": "5095550111", "PatientType": "Medical"},
+        {"Guest_id": 2, "Name": "Rec Rick", "PhoneNo": "5095550112", "PatientType": "Recreational"}]}))
+    body = auth.post(reverse("lookup"), {"phone": "509555"}, SERVER_NAME="localhost").content
+    assert b"Med Mary" in body and b"Rec Rick" in body
+    assert b"pill-med" in body and b">Medical<" in body                          # medical pill
+    assert b"pill-rec" in body and b">Rec<" in body                              # rec pill
+
+
+def test_lookup_start_mode_fills_phone(auth, monkeypatch):
+    _use_store(monkeypatch)
+    monkeypatch.setattr(V, "_client", lambda s: FakeClient(guests={"Data": [
+        {"Guest_id": 5, "Name": "Gate Guy", "PhoneNo": "5095550113"}]}))
+    body = auth.post(reverse("lookup"), {"phone": "509555", "mode": "start"},
+                     SERVER_NAME="localhost").content
+    assert b'data-fill-phone="5095550113"' in body and b"hx-post" not in body    # fill, not select
+
+
 def test_menu_renders_products(auth, monkeypatch):
     _use_store(monkeypatch)
     items = [{

@@ -8,11 +8,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'budtender/app.css' %}">
+  <script src="{% static 'budtender/htmx.min.js' %}" defer></script>
+  <script src="{% static 'budtender/app.js' %}" defer></script>
 </head>
-<body>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 <header class="top">
   <span class="logo">HAPPY&nbsp;TIME</span>
-  <select name="store" form="startform">
+  <select name="store" id="store" form="startform">
     {% for s in stores %}<option value="{{ s }}" {% if s == active %}selected{% endif %}>{{ s|title }}</option>{% endfor %}
   </select>
   <span class="spacer"></span>
@@ -46,7 +48,11 @@
         <label style="display:block;font-size:12px;color:var(--sage);margin:10px 0 4px">Scan ID (camera)</label>
         <input type="file" name="images" accept="image/*" capture="environment" multiple style="width:100%">
         <label style="display:block;font-size:12px;color:var(--sage);margin:12px 0 4px">Phone number</label>
-        <input type="tel" name="phone" inputmode="tel" placeholder="509…" value="{{ phone }}" style="width:100%">
+        <input type="tel" name="phone" id="startphone" inputmode="tel" placeholder="509…" value="{{ phone }}"
+               style="width:100%" autocomplete="off"
+               hx-post="{% url 'lookup' %}" hx-trigger="keyup changed delay:350ms"
+               hx-target="#begin-guests" hx-vals='{"mode":"start"}'>
+        <div id="begin-guests" class="ac-results"></div>
         <button type="submit" style="width:100%;margin-top:16px;min-height:48px">Begin session</button>
         <button type="submit" name="guest" value="1" class="ghost" style="width:100%;margin-top:10px;min-height:46px">Continue as guest</button>
       </form>

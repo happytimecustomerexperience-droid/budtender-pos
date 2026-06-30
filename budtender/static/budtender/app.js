@@ -20,6 +20,16 @@
     if (p.indexOf("/cart/add/") !== -1 && e.detail.successful) openCart();
   });
 
+  // Begin-gate autocomplete: clicking a suggestion fills the phone field (then "Begin").
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-fill-phone]");
+    if (!t) return;
+    var inp = document.getElementById("startphone");
+    if (inp) { inp.value = t.getAttribute("data-fill-phone"); inp.focus(); }
+    var box = document.getElementById("begin-guests");
+    if (box) box.innerHTML = "";
+  });
+
   // Carousel arrows: page the sibling rail ~5 cards at a time.
   document.addEventListener("click", function (e) {
     var btn = e.target.closest("[data-rail-prev],[data-rail-next]");

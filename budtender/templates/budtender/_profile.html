@@ -1,3 +1,5 @@
+{# close the autocomplete dropdown once a customer is picked #}
+<div id="guests" hx-swap-oob="true" class="ac-results"></div>
 {% if error %}<span class="err">{{ error }}</span>{% endif %}
 {% if warn %}<span class="warn">{{ warn }}</span>{% endif %}
 {% if scan or acct_id %}
